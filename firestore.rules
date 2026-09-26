@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Family Members Collection (PRIMARY SOURCE OF TRUTH)
+    match /family_members/{memberId} {
+      allow read, write: if true;
+    }
+
+    // 2. Users Collection
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+
+    // 3. Edit Requests Collection
+    match /edit_requests/{requestId} {
+      allow read, write: if true;
+    }
+
+    // 4. Notifications Collection
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+
+    // 5. Settings Collection
+    match /settings/{settingId} {
+      allow read, write: if true;
+    }
+
+    // 6. Audit Logs Collection (Super Admin audit history)
+    match /audit_logs/{logId} {
+      allow read, write: if true;
+    }
+
+    // Fallback for any other collections
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

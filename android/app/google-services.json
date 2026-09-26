@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "1048000775904",
+    "project_id": "laghari-family",
+    "storage_bucket": "laghari-family.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1048000775904:android:fdc5474e7ed85638a67285",
+        "android_client_info": {
+          "package_name": "com.laghari.family.laghari_family"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1048000775904-o5id3hlcadue42butvs15vfal0j3akna.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrqMq29RHMbuWPcIopKZ9E7PUbxTd5NNI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1048000775904-o5id3hlcadue42butvs15vfal0j3akna.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1048000775904-4gqmjs0sg2gmpfv25pep41n5dhdnude6.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.laghari.family.laghariFamily"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

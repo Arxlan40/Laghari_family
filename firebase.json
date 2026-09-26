@@ -1,0 +1,34 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "laghari-family",
+          "appId": "1:1048000775904:android:fdc5474e7ed85638a67285",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "laghari-family",
+          "appId": "1:1048000775904:ios:639de806d4efe923a67285",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "laghari-family",
+          "configurations": {
+            "android": "1:1048000775904:android:fdc5474e7ed85638a67285",
+            "ios": "1:1048000775904:ios:639de806d4efe923a67285",
+            "web": "1:1048000775904:web:29a8bc9e7c63da03a67285"
+          }
+        }
+      }
+    }
+  }
+}
