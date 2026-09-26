@@ -1,39 +1,95 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 1. Family Members Collection (PRIMARY SOURCE OF TRUTH)
+    
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function userDocExists() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function getUserData() {
+      return userDocExists() ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data : {};
+    }
+    function isSuperAdmin() {
+      return isAuthenticated() && 
+        (request.auth.token.email == 'arxlanumer50@gmail.com' ||
+         (userDocExists() && getUserData().role == 'super_admin'));
+    }
+    function isAdmin() {
+      return isAuthenticated() && 
+        (isSuperAdmin() || 
+         (userDocExists() && getUserData().role == 'admin'));
+    }
+
+    // 1. Family Members Collection
     match /family_members/{memberId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // 2. Users Collection
     match /users/{userId} {
-      allow read, write: if true;
+      // Normal users can read and update their own document.
+      // Super Admins and Admins can manage roles/status and delete users if needed.
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow read: if isOwner(userId) || isAdmin();
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+
+      // Explicit protection for nested device/location info if stored in subcollections
+      match /deviceInfo/{docId} {
+        allow read: if isOwner(userId) || isSuperAdmin();
+        allow write: if isOwner(userId) || isSuperAdmin();
+      }
+      match /location/{docId} {
+        allow read: if isOwner(userId) || isSuperAdmin();
+        allow write: if isOwner(userId) || isSuperAdmin();
+      }
     }
 
     // 3. Edit Requests Collection
     match /edit_requests/{requestId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     // 4. Notifications Collection
     match /notifications/{notificationId} {
-      allow read, write: if true;
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated();
+      allow delete: if isSuperAdmin();
     }
 
     // 5. Settings Collection
     match /settings/{settingId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSuperAdmin();
     }
 
-    // 6. Audit Logs Collection (Super Admin audit history)
+    // 6. Audit Logs Collection (Super Admin only)
     match /audit_logs/{logId} {
-      allow read, write: if true;
+      allow read: if isSuperAdmin();
+      allow create: if isAuthenticated();
+      allow update, delete: if isSuperAdmin();
     }
 
-    // Fallback for any other collections
+    // 7. Deleted Members Collection
+    match /deleted_members/{memberId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Fallback rule for backward compatibility
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if isAuthenticated();
     }
   }
 }

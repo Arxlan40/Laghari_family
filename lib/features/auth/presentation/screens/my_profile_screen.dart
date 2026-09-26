@@ -29,7 +29,7 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
 
   String _profileImageUrl = '';
   String _bloodGroup = 'Unknown';
-  String _gender = 'Prefer not to say';
+  String _gender = 'Male';
   bool _isSaving = false;
   bool _isUploadingPhoto = false;
 
@@ -48,8 +48,6 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
   static const List<String> _genderOptions = [
     'Male',
     'Female',
-    'Other',
-    'Prefer not to say',
   ];
 
   @override
@@ -75,10 +73,11 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
       _profileImageUrl = user.profileImageUrl;
       if (_bloodGroupOptions.contains(user.bloodGroup)) {
         _bloodGroup = user.bloodGroup;
+      } else {
+        _bloodGroup = 'Unknown';
       }
-      if (_genderOptions.contains(user.gender)) {
-        _gender = user.gender;
-      }
+      final normalizedGender = UserModel.normalizeGender(user.gender);
+      _gender = _genderOptions.contains(normalizedGender) ? normalizedGender : 'Male';
     }
   }
 
@@ -325,7 +324,7 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
 
                         // Gender Selector
                         DropdownButtonFormField<String>(
-                          initialValue: _gender,
+                          initialValue: _genderOptions.contains(_gender) ? _gender : 'Male',
                           decoration: InputDecoration(
                             labelText: loc.translate('gender'),
                             prefixIcon: const Icon(Icons.person_outline),
@@ -337,10 +336,6 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
                                 label = 'مرد (Male)';
                               } else if (g == 'Female') {
                                 label = 'خاتون (Female)';
-                              } else if (g == 'Other') {
-                                label = 'دیگر (Other)';
-                              } else if (g == 'Prefer not to say') {
-                                label = 'بتانا پسند نہیں';
                               }
                             }
                             return DropdownMenuItem<String>(
@@ -368,7 +363,7 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
 
                         // Blood Group
                         DropdownButtonFormField<String>(
-                          initialValue: _bloodGroup,
+                          initialValue: _bloodGroupOptions.contains(_bloodGroup) ? _bloodGroup : 'Unknown',
                           decoration: InputDecoration(
                             labelText: loc.translate('blood_group'),
                             prefixIcon: const Icon(Icons.bloodtype_outlined, color: AppColors.danger),
@@ -421,6 +416,38 @@ class _MyProfileScreenState extends ConsumerState<MyProfileScreen> {
                                 )
                               : Text(loc.isUrdu ? 'محفوظ کریں' : 'Save Profile Changes'),
                         ),
+
+                        // Admin Portal Quick Access Tile (Only for Admins)
+                        if (user.isAdmin) ...[
+                          const SizedBox(height: 24),
+                          const Divider(),
+                          const SizedBox(height: 12),
+                          Card(
+                            color: AppColors.gold.withValues(alpha: isDark ? 0.12 : 0.08),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(color: AppColors.gold.withValues(alpha: 0.4)),
+                            ),
+                            child: ListTile(
+                              leading: const CircleAvatar(
+                                backgroundColor: AppColors.gold,
+                                child: Icon(Icons.admin_panel_settings, color: Colors.black),
+                              ),
+                              title: Text(
+                                loc.translate('admin_panel'),
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Text(
+                                loc.isUrdu
+                                    ? 'انتظامی پینل، منظوریوں اور سیٹنگز تک رسائی حاصل کریں'
+                                    : 'Access admin controls, approvals, and system settings',
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.gold),
+                              onTap: () => context.push('/admin/dashboard'),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

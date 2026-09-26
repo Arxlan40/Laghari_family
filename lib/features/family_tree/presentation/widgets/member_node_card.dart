@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../admin/models/audit_log_model.dart';
+import '../../../admin/repositories/audit_log_repository.dart';
+import '../../../auth/providers/auth_provider.dart';
 import '../../models/family_member.dart';
+import '../../repositories/family_repository.dart';
+import 'edit_name_dialog.dart';
 import 'member_avatar_widget.dart';
 import 'member_preview_sheet.dart';
 
@@ -11,15 +18,16 @@ import 'member_preview_sheet.dart';
 /// - Compact orthogonal layout with gender-specific color accents
 /// - Top circular avatar with gender rim
 /// - Primary name, secondary name, life years/generation
-/// - 3-Dot action menu for profile, details, edit, add child
+/// - 3-Dot action menu for profile, details, edit, add child, and delete (admin)
 /// - Bottom +/- expander pill for children branch
-class MemberNodeCard extends StatelessWidget {
+class MemberNodeCard extends ConsumerWidget {
   final FamilyMember member;
   final bool isSelected;
   final bool isExpanded;
   final VoidCallback? onTap;
   final VoidCallback? onExpandToggle;
   final VoidCallback? onLongPress;
+  final bool isDirectAdmin;
 
   const MemberNodeCard({
     super.key,
@@ -29,6 +37,7 @@ class MemberNodeCard extends StatelessWidget {
     this.onTap,
     this.onExpandToggle,
     this.onLongPress,
+    this.isDirectAdmin = false,
   });
 
   String _formatLifeYears(FamilyMember m, AppLocalizations loc) {
@@ -63,10 +72,11 @@ class MemberNodeCard extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final loc = AppLocalizations.of(context);
     final isUrdu = loc.isUrdu;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final currentUser = ref.watch(currentUserProvider);
 
     final primaryName = member.localizedName(loc.locale.languageCode);
     final secondaryName = member.secondaryName(loc.locale.languageCode);
@@ -161,19 +171,103 @@ class MemberNodeCard extends StatelessWidget {
                         size: 17,
                         color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
                       ),
-                      onSelected: (action) {
+                      onSelected: (action) async {
                         switch (action) {
                           case 'profile':
                             context.push('/member/${member.id}');
                             break;
                           case 'sheet':
-                            MemberPreviewSheet.show(context, member);
+                            MemberPreviewSheet.show(context, member, isDirectAdmin: isDirectAdmin);
+                            break;
+                          case 'edit_name':
+                            EditNameDialog.show(context, member, isDirectAdmin: isDirectAdmin);
                             break;
                           case 'suggest_edit':
-                            context.push('/submit-edit-request/${member.id}');
+                            if (isDirectAdmin) {
+                              context.push('/admin/edit-member/${member.id}');
+                            } else {
+                              context.push('/submit-edit-request/${member.id}');
+                            }
                             break;
                           case 'add_child':
-                            context.push('/request-add-child/${member.id}');
+                            if (isDirectAdmin) {
+                              context.push('/admin/add-child/${member.id}');
+                            } else {
+                              context.push('/request-add-child/${member.id}');
+                            }
+                            break;
+                          case 'delete':
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: Row(
+                                  children: [
+                                    const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+                                    const SizedBox(width: 8),
+                                    Text(isUrdu ? 'رکن مستقل حذف کریں؟' : 'Delete Member?'),
+                                  ],
+                                ),
+                                content: Text(
+                                  isUrdu
+                                      ? 'کیا آپ واقعی "${member.localizedName(loc.locale.languageCode)}" کو شجرہ نسب سے مستقل طور پر حذف کرنا چاہتے ہیں؟ یہ عمل واپس نہیں لیا جا سکتا۔'
+                                      : 'Are you sure you want to permanently delete "${member.localizedName(loc.locale.languageCode)}" from the family tree? This action cannot be undone.',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(ctx, false),
+                                    child: Text(loc.translate('cancel')),
+                                  ),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+                                    onPressed: () => Navigator.pop(ctx, true),
+                                    child: Text(
+                                      isUrdu ? 'مستقل حذف کریں' : 'Delete Permanently',
+                                      style: const TextStyle(color: Colors.white),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+
+                            if (confirm == true && context.mounted) {
+                              final messenger = ScaffoldMessenger.of(context);
+                              try {
+                                await ref.read(familyRepositoryProvider).deleteMember(member.id);
+
+                                await ref.read(auditLogRepositoryProvider).recordLog(
+                                  AuditLogModel(
+                                    logId: const Uuid().v4(),
+                                    action: 'direct_delete_member',
+                                    performedBy: currentUser?.uid ?? 'admin',
+                                    performedByName: currentUser?.name ?? 'Admin',
+                                    performedByRole: currentUser?.role.value ?? 'admin',
+                                    performedByPhone: currentUser?.phone,
+                                    targetMemberId: member.id,
+                                    targetMemberName: member.nameEn,
+                                    oldData: member.toJson(),
+                                    timestamp: DateTime.now(),
+                                  ),
+                                );
+
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: AppColors.danger,
+                                    content: Text(
+                                      isUrdu
+                                          ? 'رکن کو شجرہ نسب سے مستقل طور پر حذف کر دیا گیا۔'
+                                          : 'Member deleted permanently from the family tree.',
+                                    ),
+                                  ),
+                                );
+                              } catch (e) {
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    backgroundColor: AppColors.danger,
+                                    content: Text('Failed to delete member: $e'),
+                                  ),
+                                );
+                              }
+                            }
                             break;
                         }
                       },
@@ -192,20 +286,50 @@ class MemberNodeCard extends StatelessWidget {
                           value: 'sheet',
                           child: Row(
                             children: [
-                              const Icon(Icons.info_outline, size: 18, color: AppColors.gold),
+                              Icon(
+                                isDirectAdmin ? Icons.admin_panel_settings : Icons.info_outline,
+                                size: 18,
+                                color: isDirectAdmin ? AppColors.emerald : AppColors.gold,
+                              ),
                               const SizedBox(width: 10),
-                              Text(isUrdu ? 'مختصر تفصیلات' : 'Quick Details'),
+                              Text(
+                                isDirectAdmin
+                                    ? (isUrdu ? 'ایڈمن اختیارات' : 'Admin Actions')
+                                    : (isUrdu ? 'مختصر تفصیلات' : 'Quick Details'),
+                              ),
                             ],
                           ),
                         ),
                         const PopupMenuDivider(),
                         PopupMenuItem(
+                          value: 'edit_name',
+                          child: Row(
+                            children: [
+                              const Icon(Icons.edit, size: 18, color: AppColors.gold),
+                              const SizedBox(width: 10),
+                              Text(
+                                isDirectAdmin
+                                    ? (isUrdu ? 'براہ راست نام میں ترمیم' : 'Direct Edit Name')
+                                    : (isUrdu ? 'نام میں ترمیم (اردو/EN)' : 'Edit Name (EN/UR)'),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
                           value: 'suggest_edit',
                           child: Row(
                             children: [
-                              const Icon(Icons.edit_note, size: 18, color: Colors.blueAccent),
+                              Icon(
+                                isDirectAdmin ? Icons.edit_note : Icons.edit_note,
+                                size: 18,
+                                color: isDirectAdmin ? AppColors.emerald : Colors.blueAccent,
+                              ),
                               const SizedBox(width: 10),
-                              Text(isUrdu ? 'معلومات کی درستگی' : 'Suggest Edit'),
+                              Text(
+                                isDirectAdmin
+                                    ? (isUrdu ? 'براہ راست تفصیلات کی ترمیم' : 'Direct Edit Details')
+                                    : (isUrdu ? 'مکمل معلومات کی درستگی' : 'Full Edit / Suggest'),
+                              ),
                             ],
                           ),
                         ),
@@ -213,12 +337,36 @@ class MemberNodeCard extends StatelessWidget {
                           value: 'add_child',
                           child: Row(
                             children: [
-                              const Icon(Icons.person_add_alt_1, size: 18, color: Colors.teal),
+                              Icon(
+                                Icons.person_add_alt_1,
+                                size: 18,
+                                color: isDirectAdmin ? AppColors.gold : Colors.teal,
+                              ),
                               const SizedBox(width: 10),
-                              Text(isUrdu ? 'اولاد شامل کریں' : 'Add Child'),
+                              Text(
+                                isDirectAdmin
+                                    ? (isUrdu ? 'براہ راست بچہ شامل کریں' : 'Direct Add Child')
+                                    : (isUrdu ? 'اولاد شامل کریں' : 'Add Child'),
+                              ),
                             ],
                           ),
                         ),
+                        if (isDirectAdmin) ...[
+                          const PopupMenuDivider(),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Row(
+                              children: [
+                                const Icon(Icons.delete_forever, size: 18, color: AppColors.danger),
+                                const SizedBox(width: 10),
+                                Text(
+                                  isUrdu ? 'شجرہ سے مستقل حذف' : 'Delete Permanently',
+                                  style: const TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],

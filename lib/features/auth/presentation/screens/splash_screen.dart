@@ -5,6 +5,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/presentation/widgets/update_dialog.dart';
 import '../../../../core/services/app_version_service.dart';
+import '../../../../core/services/device_info_service.dart';
 import '../../providers/auth_provider.dart';
 
 final splashCheckDoneProvider = StateProvider<bool>((ref) => false);
@@ -59,11 +60,33 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
       debugPrint('Startup check error: $e');
     }
 
+    // 2. Fetch device details & location on splash screen
+    try {
+      if (mounted) {
+        setState(() {
+          _statusText = loc.isUrdu ? 'مقام اور ڈیوائس کی تصدیق...' : 'Fetching device & location...';
+        });
+      }
+      final devInfo = await DeviceInfoService.fetchDeviceDetailsAndLocationOnSplash();
+      if (mounted) {
+        final currentUser = ref.read(currentUserProvider);
+        if (currentUser != null && currentUser.uid.isNotEmpty) {
+          await ref.read(authRepositoryProvider).updateUserDeviceInfo(currentUser.uid, devInfo);
+        }
+      }
+    } catch (e) {
+      debugPrint('Splash device/location check: $e');
+    }
+
     if (mounted) {
       ref.read(splashCheckDoneProvider.notifier).state = true;
       final currentUser = ref.read(currentUserProvider);
       if (currentUser != null) {
-        context.go('/family-tree');
+        if (currentUser.isAdmin) {
+          context.go('/admin/dashboard');
+        } else {
+          context.go('/family-tree');
+        }
       } else {
         context.go('/login');
       }

@@ -6,7 +6,6 @@ import '../../../../core/localization/app_localizations.dart';
 import '../../../auth/providers/auth_provider.dart';
 import '../../../edit_requests/repositories/edit_request_repository.dart';
 import '../../../family_tree/providers/family_tree_providers.dart';
-import '../../../notifications/presentation/widgets/fcm_token_dialog.dart';
 import '../../../notifications/presentation/widgets/notification_badge_icon.dart';
 import '../../../notifications/repositories/notification_repository.dart';
 
@@ -28,14 +27,6 @@ class AdminDashboardScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(loc.translate('admin_panel')),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.token, color: AppColors.gold),
-            tooltip: 'FCM Device Token',
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => const FcmTokenDialog(),
-            ),
-          ),
           const NotificationBadgeIcon(),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -161,7 +152,7 @@ class AdminDashboardScreen extends ConsumerWidget {
             subtitle: loc.translate('direct_management_desc'),
             icon: Icons.account_tree,
             iconColor: AppColors.emerald,
-            onTap: () => context.go('/family-tree'),
+            onTap: () => context.push('/admin/tree'),
           ),
 
           // 3. Notifications Screen

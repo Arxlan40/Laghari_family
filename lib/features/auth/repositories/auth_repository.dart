@@ -93,8 +93,9 @@ class AuthRepository {
     String profileImageUrl = '',
     UserRole role = UserRole.user,
     String bloodGroup = 'Unknown',
-    String gender = 'Prefer not to say',
+    String gender = 'Male',
     String profession = '',
+    UserDeviceInfo? deviceInfo,
   }) async {
     final auth = _auth;
     final firestore = _firestore;
@@ -118,10 +119,11 @@ class AuthRepository {
         role: role,
         status: AccountStatus.active,
         bloodGroup: bloodGroup,
-        gender: gender,
+        gender: UserModel.normalizeGender(gender),
         profession: profession,
         createdAt: now,
         updatedAt: now,
+        deviceInfo: deviceInfo,
       );
 
       if (firestore != null) {
@@ -147,14 +149,30 @@ class AuthRepository {
         role: role,
         status: AccountStatus.active,
         bloodGroup: bloodGroup,
-        gender: gender,
+        gender: UserModel.normalizeGender(gender),
         profession: profession,
         createdAt: now,
         updatedAt: now,
+        deviceInfo: deviceInfo,
       );
       _currentUser = user;
       _userStreamController.add(user);
       return user;
+    }
+  }
+
+  /// Updates user device and location information in Firestore
+  Future<void> updateUserDeviceInfo(String uid, UserDeviceInfo info) async {
+    final firestore = _firestore;
+    if (firestore != null && uid.isNotEmpty) {
+      try {
+        await firestore.collection(AppConfig.usersCollection).doc(uid).set({
+          'deviceInfo': info.toJson(),
+          'updated_at': DateTime.now().toIso8601String(),
+        }, SetOptions(merge: true));
+      } catch (e) {
+        debugPrint('Error updating user device info: $e');
+      }
     }
   }
 
@@ -430,6 +448,20 @@ class AuthRepository {
         }, SetOptions(merge: true));
       } catch (e) {
         debugPrint('Error updating FCM token in Firestore: $e');
+      }
+    }
+  }
+
+  /// Permanently deletes a user document from Firestore
+  Future<void> deleteUserPermanently(String uid) async {
+    final firestore = _firestore;
+    if (firestore != null && uid.isNotEmpty) {
+      try {
+        await firestore.collection(AppConfig.usersCollection).doc(uid).delete();
+        debugPrint('Successfully deleted user $uid permanently from Firestore.');
+      } catch (e) {
+        debugPrint('Error deleting user $uid from Firestore: $e');
+        rethrow;
       }
     }
   }

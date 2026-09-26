@@ -111,18 +111,24 @@ class EditRequestRepository {
     }
 
     // 1. Notify selected Admin specifically if chosen
+    final phoneSnippet = reqWithId.requestedByPhone != null && reqWithId.requestedByPhone!.isNotEmpty
+        ? ' (📞 ${reqWithId.requestedByPhone})'
+        : '';
+
     if (reqWithId.selectedAdminId != null && reqWithId.selectedAdminId!.isNotEmpty) {
       await _notificationRepo.sendNotification(
         NotificationModel(
           notificationId: const Uuid().v4(),
           userId: reqWithId.selectedAdminId!,
-          title: 'New Request Assigned to You',
-          body: '${reqWithId.requestedByName} requested ${reqWithId.type.labelEn} for ${reqWithId.targetMemberName ?? 'a member'}.',
+          title: 'Laghari Family: New Request Assigned',
+          body: '${reqWithId.requestedByName}$phoneSnippet requested ${reqWithId.type.labelEn} for ${reqWithId.targetMemberName ?? 'a member'}.',
           type: 'new_request',
           createdAt: DateTime.now(),
           metadata: {
             'request_id': reqWithId.requestId,
             'member_id': reqWithId.memberId,
+            'user_phone': reqWithId.requestedByPhone,
+            'user_name': reqWithId.requestedByName,
           },
         ),
       );
@@ -131,13 +137,15 @@ class EditRequestRepository {
         NotificationModel(
           notificationId: const Uuid().v4(),
           userId: 'all_super_admins',
-          title: 'New Family Tree Request',
-          body: '${reqWithId.requestedByName} submitted ${reqWithId.type.labelEn} (Assigned to ${reqWithId.selectedAdminName ?? 'Admin'}).',
+          title: 'Laghari Family: New Family Tree Request',
+          body: '${reqWithId.requestedByName}$phoneSnippet submitted ${reqWithId.type.labelEn} (Assigned to ${reqWithId.selectedAdminName ?? 'Admin'}).',
           type: 'new_request',
           createdAt: DateTime.now(),
           metadata: {
             'request_id': reqWithId.requestId,
             'member_id': reqWithId.memberId,
+            'user_phone': reqWithId.requestedByPhone,
+            'user_name': reqWithId.requestedByName,
           },
         ),
       );
@@ -147,13 +155,15 @@ class EditRequestRepository {
         NotificationModel(
           notificationId: const Uuid().v4(),
           userId: 'all_admins',
-          title: 'New Family Tree Request',
-          body: '${reqWithId.requestedByName} submitted a request: ${reqWithId.type.labelEn}.',
+          title: 'Laghari Family: New Family Tree Request',
+          body: '${reqWithId.requestedByName}$phoneSnippet submitted a request: ${reqWithId.type.labelEn}.',
           type: 'new_request',
           createdAt: DateTime.now(),
           metadata: {
             'request_id': reqWithId.requestId,
             'member_id': reqWithId.memberId,
+            'user_phone': reqWithId.requestedByPhone,
+            'user_name': reqWithId.requestedByName,
           },
         ),
       );
@@ -217,6 +227,7 @@ class EditRequestRepository {
     required String reviewerUid,
     required String reviewerName,
     String reviewerRole = 'admin',
+    String? reviewerPhone,
   }) async {
     EditRequest? req;
 
@@ -302,11 +313,13 @@ class EditRequestRepository {
         performedBy: reviewerUid,
         performedByName: reviewerName,
         performedByRole: reviewerRole,
+        performedByPhone: reviewerPhone,
         targetMemberId: req.memberId,
         targetMemberName: targetMemberName.isNotEmpty ? targetMemberName : (req.memberId ?? 'Family Member'),
         requestId: requestId,
         requestedBy: req.requestedBy,
         requestedByName: req.requestedByName,
+        requestedByPhone: req.requestedByPhone,
         oldData: req.oldData,
         newData: req.newData.isNotEmpty ? req.newData : req.changes,
         timestamp: DateTime.now(),
@@ -319,12 +332,16 @@ class EditRequestRepository {
         notificationId: const Uuid().v4(),
         userId: req.requestedBy,
         title: req.type == EditRequestType.addChild
-            ? 'Add Child Request Approved'
-            : 'Edit Request Approved',
+            ? 'Laghari Family: Add Child Request Approved'
+            : 'Laghari Family: Edit Request Approved',
         body: 'Your request regarding member "${targetMemberName.isNotEmpty ? targetMemberName : (req.memberId ?? 'Family Member')}" has been approved by $reviewerName.',
         type: 'request_approved',
         createdAt: DateTime.now(),
-        metadata: {'request_id': requestId, 'member_id': req.memberId},
+        metadata: {
+          'request_id': requestId,
+          'member_id': req.memberId,
+          'user_phone': req.requestedByPhone,
+        },
       ),
     );
   }
@@ -335,6 +352,7 @@ class EditRequestRepository {
     required String reviewerUid,
     required String reviewerName,
     String reviewerRole = 'admin',
+    String? reviewerPhone,
     required String reason,
   }) async {
     EditRequest? req;
@@ -374,11 +392,13 @@ class EditRequestRepository {
         performedBy: reviewerUid,
         performedByName: reviewerName,
         performedByRole: reviewerRole,
+        performedByPhone: reviewerPhone,
         targetMemberId: req.memberId,
         targetMemberName: req.targetMemberName ?? req.memberId ?? 'Family Member',
         requestId: requestId,
         requestedBy: req.requestedBy,
         requestedByName: req.requestedByName,
+        requestedByPhone: req.requestedByPhone,
         oldData: {'status': 'pending'},
         newData: {'status': 'rejected', 'reason': reason},
         timestamp: DateTime.now(),
@@ -391,12 +411,16 @@ class EditRequestRepository {
         notificationId: const Uuid().v4(),
         userId: req.requestedBy,
         title: req.type == EditRequestType.addChild
-            ? 'Add Child Request Rejected'
-            : 'Edit Request Rejected',
+            ? 'Laghari Family: Add Child Request Rejected'
+            : 'Laghari Family: Edit Request Rejected',
         body: 'Your request regarding member "${req.targetMemberName ?? req.memberId ?? 'Family Member'}" was rejected. Reason: $reason',
         type: 'request_rejected',
         createdAt: DateTime.now(),
-        metadata: {'request_id': requestId, 'member_id': req.memberId},
+        metadata: {
+          'request_id': requestId,
+          'member_id': req.memberId,
+          'user_phone': req.requestedByPhone,
+        },
       ),
     );
   }

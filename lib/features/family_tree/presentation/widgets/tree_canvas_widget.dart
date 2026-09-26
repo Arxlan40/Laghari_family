@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../auth/providers/auth_provider.dart';
 import '../../models/family_member.dart';
 import '../../providers/family_tree_providers.dart';
 import 'member_node_card.dart';
@@ -10,10 +11,12 @@ import 'member_node_card.dart';
 /// Clean MyHeritage / Pedigree-inspired family tree canvas.
 class TreeCanvasWidget extends ConsumerStatefulWidget {
   final String? initialFocusMemberId;
+  final bool isDirectAdmin;
 
   const TreeCanvasWidget({
     super.key,
     this.initialFocusMemberId,
+    this.isDirectAdmin = false,
   });
 
   @override
@@ -699,6 +702,9 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
         ? const Color(0xFF90A4AE).withValues(alpha: 0.7)
         : const Color(0xFF78909C);
 
+    final currentUser = ref.watch(currentUserProvider);
+    final effectiveIsAdmin = widget.isDirectAdmin || (currentUser?.isAdmin ?? false);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -710,6 +716,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
             member: member,
             isSelected: isSelected,
             isExpanded: isExpanded,
+            isDirectAdmin: effectiveIsAdmin,
             onTap: () {
               // Select and toggle or focus
               _selectAndFocusMember(member);

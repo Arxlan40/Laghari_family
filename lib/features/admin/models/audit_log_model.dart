@@ -4,11 +4,13 @@ class AuditLogModel {
   final String performedBy;
   final String performedByName;
   final String performedByRole;
+  final String? performedByPhone;
   final String? targetMemberId;
   final String? targetMemberName;
   final String? requestId;
   final String? requestedBy;
   final String? requestedByName;
+  final String? requestedByPhone;
   final Map<String, dynamic> oldData;
   final Map<String, dynamic> newData;
   final String? details;
@@ -20,11 +22,13 @@ class AuditLogModel {
     required this.performedBy,
     required this.performedByName,
     required this.performedByRole,
+    this.performedByPhone,
     this.targetMemberId,
     this.targetMemberName,
     this.requestId,
     this.requestedBy,
     this.requestedByName,
+    this.requestedByPhone,
     this.oldData = const {},
     this.newData = const {},
     this.details,
@@ -71,11 +75,13 @@ class AuditLogModel {
       performedBy: (json['performed_by'] ?? json['performedBy'] ?? '').toString(),
       performedByName: (json['performed_by_name'] ?? json['performedByName'] ?? 'Admin').toString(),
       performedByRole: (json['performed_by_role'] ?? json['performedByRole'] ?? 'admin').toString(),
+      performedByPhone: (json['performed_by_phone'] ?? json['performedByPhone'] ?? json['phone'])?.toString(),
       targetMemberId: json['target_member_id']?.toString() ?? json['targetMemberId']?.toString(),
       targetMemberName: json['target_member_name']?.toString() ?? json['targetMemberName']?.toString(),
       requestId: json['request_id']?.toString() ?? json['requestId']?.toString(),
       requestedBy: json['requested_by']?.toString() ?? json['requestedBy']?.toString(),
       requestedByName: json['requested_by_name']?.toString() ?? json['requestedByName']?.toString(),
+      requestedByPhone: (json['requested_by_phone'] ?? json['requestedByPhone'])?.toString(),
       oldData: json['old_data'] is Map
           ? Map<String, dynamic>.from(json['old_data'] as Map)
           : (json['oldData'] is Map ? Map<String, dynamic>.from(json['oldData'] as Map) : const {}),
@@ -94,11 +100,13 @@ class AuditLogModel {
       'performed_by': performedBy,
       'performed_by_name': performedByName,
       'performed_by_role': performedByRole,
+      'performed_by_phone': performedByPhone,
       'target_member_id': targetMemberId,
       'target_member_name': targetMemberName,
       'request_id': requestId,
       'requested_by': requestedBy,
       'requested_by_name': requestedByName,
+      'requested_by_phone': requestedByPhone,
       'old_data': oldData,
       'new_data': newData,
       'details': details,

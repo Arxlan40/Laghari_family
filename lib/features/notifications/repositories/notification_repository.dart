@@ -245,14 +245,11 @@ class NotificationRepository {
     }
   }
 
-  /// Marks all matching notifications as read
+  /// Marks all notifications belonging to the user as read
   Future<void> markAllAsRead(String userId, {bool isAdmin = false, bool isSuperAdmin = false}) async {
     for (int i = 0; i < _inMemoryNotifications.length; i++) {
       final n = _inMemoryNotifications[i];
-      if (n.userId == userId ||
-          n.userId == 'all_users' ||
-          (isAdmin && n.userId == 'all_admins') ||
-          (isSuperAdmin && (n.userId == 'all_super_admins' || n.userId == 'all_admins'))) {
+      if (n.userId == userId) {
         _inMemoryNotifications[i] = n.copyWith(isRead: true);
       }
     }
@@ -260,13 +257,20 @@ class NotificationRepository {
 
     if (_hasLiveFirestore) {
       try {
-        final snap = await _collection.where('user_id', isEqualTo: userId).where('is_read', isEqualTo: false).get();
-        final batch = _firestore!.batch();
-        for (final doc in snap.docs) {
-          batch.update(doc.reference, {'is_read': true});
+        final snap = await _collection
+            .where('user_id', isEqualTo: userId)
+            .where('is_read', isEqualTo: false)
+            .get();
+        if (snap.docs.isNotEmpty) {
+          final batch = _firestore!.batch();
+          for (final doc in snap.docs) {
+            batch.update(doc.reference, {'is_read': true});
+          }
+          await batch.commit();
         }
-        await batch.commit();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Error marking all notifications read in Firestore: $e');
+      }
     }
   }
 }
@@ -280,10 +284,13 @@ final notificationRepositoryProvider = Provider<NotificationRepository>((ref) {
   return NotificationRepository(firestore, auditLogRepo);
 });
 
+final badgeClearedOptimisticallyProvider = StateProvider<bool>((ref) => false);
+
 final userNotificationsStreamProvider = StreamProvider<List<NotificationModel>>((ref) {
   final currentUser = ref.watch(currentUserProvider);
   if (currentUser == null) return Stream.value([]);
   final repo = ref.watch(notificationRepositoryProvider);
+
   return repo.watchUserNotifications(
     currentUser.uid,
     isAdmin: currentUser.isAdmin,
@@ -298,5 +305,20 @@ final sentNotificationsStreamProvider = StreamProvider<List<NotificationModel>>(
 
 final unreadNotificationsCountProvider = Provider<int>((ref) {
   final notifsAsync = ref.watch(userNotificationsStreamProvider);
-  return notifsAsync.valueOrNull?.where((n) => !n.isRead).length ?? 0;
+  final isCleared = ref.watch(badgeClearedOptimisticallyProvider);
+  final actualUnread = notifsAsync.valueOrNull?.where((n) => !n.isRead).length ?? 0;
+
+  // Safely reset optimistic badge flag whenever new notifications arrive
+  ref.listen<AsyncValue<List<NotificationModel>>>(userNotificationsStreamProvider, (prev, next) {
+    final prevCount = prev?.valueOrNull?.where((n) => !n.isRead).length ?? 0;
+    final nextCount = next.valueOrNull?.where((n) => !n.isRead).length ?? 0;
+    if (nextCount > prevCount) {
+      ref.read(badgeClearedOptimisticallyProvider.notifier).state = false;
+    }
+  });
+
+  if (isCleared && actualUnread > 0) {
+    return 0;
+  }
+  return actualUnread;
 });

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../features/about/presentation/screens/about_screen.dart';
 import '../../features/admin/presentation/screens/admin_dashboard_screen.dart';
+import '../../features/admin/presentation/screens/admin_tree_screen.dart';
 import '../../features/admin/presentation/screens/admin_user_management_screen.dart';
 import '../../features/admin/presentation/screens/audit_log_screen.dart';
 import '../../features/admin/presentation/screens/json_export_import_screen.dart';
@@ -205,6 +206,27 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/admin/requests',
         builder: (context, state) => const PendingRequestsScreen(),
+      ),
+      GoRoute(
+        path: '/admin/tree',
+        builder: (context, state) {
+          final focusMemberId = state.uri.queryParameters['focusMemberId'];
+          return AdminTreeScreen(focusMemberId: focusMemberId);
+        },
+      ),
+      GoRoute(
+        path: '/admin/edit-member/:id',
+        builder: (context, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return SubmitEditRequestScreen(memberId: id, isDirectAdmin: true);
+        },
+      ),
+      GoRoute(
+        path: '/admin/add-child/:fatherId',
+        builder: (context, state) {
+          final fatherId = state.pathParameters['fatherId'] ?? '';
+          return RequestAddChildScreen(fatherId: fatherId, isDirectAdmin: true);
+        },
       ),
       GoRoute(
         path: '/admin/users',

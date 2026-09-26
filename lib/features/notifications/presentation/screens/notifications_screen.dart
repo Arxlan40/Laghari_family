@@ -6,7 +6,6 @@ import '../../../../core/localization/app_localizations.dart';
 import '../../../auth/providers/auth_provider.dart';
 import '../../models/notification_model.dart';
 import '../../repositories/notification_repository.dart';
-import '../widgets/fcm_token_dialog.dart';
 
 final userNotificationsStreamProvider =
     StreamProvider<List<NotificationModel>>((ref) {
@@ -33,11 +32,6 @@ class NotificationsScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(loc.translate('notifications')),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.token, color: AppColors.gold),
-            tooltip: 'View FCM Device Token',
-            onPressed: () => FcmTokenDialog.show(context),
-          ),
           TextButton(
             onPressed: () {
               if (currentUser != null) {

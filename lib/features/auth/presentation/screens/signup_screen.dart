@@ -6,7 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../../core/services/device_info_service.dart';
 import '../../../storage/services/supabase_storage_service.dart';
+import '../../models/user_model.dart';
 import '../../providers/auth_provider.dart';
 import '../widgets/pakistan_phone_field.dart';
 
@@ -58,8 +60,6 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
   static const List<String> _genderOptions = [
     'Male',
     'Female',
-    'Other',
-    'Prefer not to say',
   ];
 
   bool _isUploadingPicture = false;
@@ -251,6 +251,71 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     );
   }
 
+  Future<bool> _promptLocationPermission(bool isUrdu) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: isDark ? AppColors.darkCard : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.emerald.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.location_on_rounded, color: AppColors.emerald, size: 24),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                isUrdu ? 'مقام کی رسائی' : 'Location Permission',
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          isUrdu
+              ? 'مقام کی رسائی کی اجازت دیں تاکہ آپ کا اکاؤنٹ موجودہ مقام کی معلومات محفوظ کر سکے۔'
+              : 'Allow location access so your account can store your current location information.',
+          style: TextStyle(
+            fontSize: 14,
+            color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              isUrdu ? 'ابھی نہیں' : 'Not Now',
+              style: TextStyle(
+                color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.emerald,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              isUrdu ? 'اجازت دیں' : 'Allow',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
   Future<void> _handleDirectSignUp() async {
     final loc = AppLocalizations.of(context);
     final isUrdu = loc.isUrdu;
@@ -310,10 +375,26 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       return;
     }
 
+    final allowLocation = await _promptLocationPermission(isUrdu);
+
+    if (!mounted) return;
     FocusScope.of(context).unfocus();
     setState(() => _isLoading = true);
 
     try {
+      UserLocationInfo? location;
+      if (allowLocation) {
+        if (DeviceInfoService.cachedDeviceInfo?.location?.latitude != null) {
+          location = DeviceInfoService.cachedDeviceInfo!.location;
+        } else {
+          location = await DeviceInfoService.requestLocationPermissionAndFetch();
+        }
+      } else {
+        location = const UserLocationInfo(permissionStatus: 'not_now');
+      }
+
+      final deviceInfo = await DeviceInfoService.collectDeviceInfo(location: location);
+
       final authRepo = ref.read(authRepositoryProvider);
       final normalizedPhone = PakistanPhoneField.normalizeToFullNumber(phone);
 
@@ -328,6 +409,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         bloodGroup: _bloodGroup,
         gender: _gender,
         profession: _professionController.text.trim(),
+        deviceInfo: deviceInfo,
       );
 
       if (mounted) {

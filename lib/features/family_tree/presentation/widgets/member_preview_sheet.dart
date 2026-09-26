@@ -14,22 +14,26 @@ import '../../../storage/services/supabase_storage_service.dart';
 import '../../models/family_member.dart';
 import '../../providers/family_tree_providers.dart';
 import '../../repositories/family_repository.dart';
+import 'edit_name_dialog.dart';
 import 'member_avatar_widget.dart';
 
 class MemberPreviewSheet extends ConsumerWidget {
   final FamilyMember member;
   final VoidCallback? onCenterInTree;
+  final bool isDirectAdmin;
 
   const MemberPreviewSheet({
     super.key,
     required this.member,
     this.onCenterInTree,
+    this.isDirectAdmin = false,
   });
 
   static Future<void> show(
     BuildContext context,
     FamilyMember member, {
     VoidCallback? onCenterInTree,
+    bool isDirectAdmin = false,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -38,6 +42,7 @@ class MemberPreviewSheet extends ConsumerWidget {
       builder: (context) => MemberPreviewSheet(
         member: member,
         onCenterInTree: onCenterInTree,
+        isDirectAdmin: isDirectAdmin,
       ),
     );
   }
@@ -47,6 +52,7 @@ class MemberPreviewSheet extends ConsumerWidget {
     final loc = AppLocalizations.of(context);
     final isUrdu = loc.isUrdu;
     final currentUser = ref.watch(currentUserProvider);
+    final effectiveIsAdmin = isDirectAdmin || (currentUser?.isAdmin ?? false);
     final membersMap = ref.watch(familyMembersMapProvider);
     final father = member.fatherId != null ? membersMap[member.fatherId] : null;
 
@@ -244,81 +250,254 @@ class MemberPreviewSheet extends ConsumerWidget {
                 label: Text(loc.translate('profile')),
               ),
 
-              // Edit button
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  context.push('/edit-request/${member.id}');
-                },
-                icon: const Icon(Icons.edit_note, size: 18),
-                label: Text(
-                  currentUser != null && currentUser.isAdmin
-                      ? loc.translate('edit_member')
-                      : loc.translate('suggest_edit'),
+              if (effectiveIsAdmin) ...[
+                // Admin Portal Direct: Edit Name (EN/UR)
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    EditNameDialog.show(context, member, isDirectAdmin: true);
+                  },
+                  icon: const Icon(Icons.edit, size: 18, color: Colors.black),
+                  label: Text(
+                    isUrdu ? 'براہ راست نام میں ترمیم' : 'Direct Edit Name',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.gold,
+                  ),
                 ),
-              ),
 
-              // Add Child button
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  context.push('/request-add-child/${member.id}');
-                },
-                icon: const Icon(Icons.person_add_alt, size: 18),
-                label: Text(
-                  currentUser != null && currentUser.isAdmin
-                      ? loc.translate('add_child')
-                      : loc.translate('request_add_child'),
+                // Admin Portal Direct: Edit Details
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push('/admin/edit-member/${member.id}');
+                  },
+                  icon: const Icon(Icons.edit_note, size: 18, color: Colors.black),
+                  label: Text(
+                    isUrdu ? 'براہ راست تفصیلات کی ترمیم' : 'Direct Edit Details',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.emerald,
+                  ),
                 ),
-              ),
 
-              // Add / Update Picture via Supabase
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final scaffoldMessenger = ScaffoldMessenger.of(context);
-                  final result = await FilePicker.platform.pickFiles(
-                    type: FileType.image,
-                    withData: true,
-                  );
-                  if (result != null && result.files.single.bytes != null) {
-                    final bytes = result.files.single.bytes!;
-                    final ext = result.files.single.extension ?? 'jpg';
+                // Admin Portal Direct: Add Child
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push('/admin/add-child/${member.id}');
+                  },
+                  icon: const Icon(Icons.person_add, size: 18, color: Colors.black),
+                  label: Text(
+                    isUrdu ? 'براہ راست بچہ شامل کریں' : 'Direct Add Child',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.gold,
+                  ),
+                ),
 
-                    scaffoldMessenger.showSnackBar(
-                      const SnackBar(content: Text('Uploading picture to Supabase Storage...')),
+                // Admin Portal Direct: Upload Picture
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final scaffoldMessenger = ScaffoldMessenger.of(context);
+                    final result = await FilePicker.platform.pickFiles(
+                      type: FileType.image,
+                      withData: true,
                     );
+                    if (result != null && result.files.single.bytes != null) {
+                      final bytes = result.files.single.bytes!;
+                      final ext = result.files.single.extension ?? 'jpg';
 
-                    try {
-                      final storage = ref.read(supabaseStorageServiceProvider);
-                      final url = await storage.uploadMemberImage(
-                        memberId: member.id,
-                        bytes: bytes,
-                        fileExtension: ext,
+                      scaffoldMessenger.showSnackBar(
+                        const SnackBar(content: Text('Uploading picture to Supabase Storage...')),
                       );
 
-                      if (currentUser != null && currentUser.isAdmin) {
-                        // Admin direct update
-                        final updated = member.copyWith(imageUrl: url);
+                      try {
+                        final storage = ref.read(supabaseStorageServiceProvider);
+                        final url = await storage.uploadMemberImage(
+                          memberId: member.id,
+                          bytes: bytes,
+                          fileExtension: ext,
+                        );
+
+                        final updated = member.copyWith(imageUrl: url, updatedAt: DateTime.now());
                         await ref.read(familyRepositoryProvider).saveMember(updated);
+
                         await ref.read(auditLogRepositoryProvider).recordLog(
                           AuditLogModel(
                             logId: const Uuid().v4(),
-                            action: 'direct_edit',
-                            performedBy: currentUser.uid,
-                            performedByName: currentUser.name,
-                            performedByRole: currentUser.role.value,
+                            action: 'direct_upload_picture',
+                            performedBy: currentUser?.uid ?? 'admin',
+                            performedByName: currentUser?.name ?? 'Admin',
+                            performedByRole: currentUser?.role.value ?? 'admin',
+                            performedByPhone: currentUser?.phone,
                             targetMemberId: member.id,
                             targetMemberName: member.nameEn,
-                            oldData: {'imageUrl': member.imageUrl},
-                            newData: {'imageUrl': url},
+                            newData: {'image_url': url},
                             timestamp: DateTime.now(),
                           ),
                         );
+
                         scaffoldMessenger.showSnackBar(
-                          const SnackBar(content: Text('Member picture updated successfully!')),
+                          const SnackBar(
+                            backgroundColor: AppColors.emerald,
+                            content: Text('Profile picture updated successfully!'),
+                          ),
                         );
-                      } else {
-                        // Create picture edit request for approval
+                        if (context.mounted) Navigator.pop(context);
+                      } catch (e) {
+                        scaffoldMessenger.showSnackBar(
+                          SnackBar(content: Text('Upload failed: $e')),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.camera_alt, size: 18, color: AppColors.emerald),
+                  label: Text(isUrdu ? 'براہ راست تصویر تبدیل کریں' : 'Direct Photo Update'),
+                ),
+
+                // Admin Portal Direct: Delete Member
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Row(
+                          children: [
+                            const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
+                            const SizedBox(width: 8),
+                            Text(isUrdu ? 'رکن حذف کریں؟' : 'Delete Member?'),
+                          ],
+                        ),
+                        content: Text(
+                          isUrdu
+                              ? 'کیا آپ واقعی ${member.localizedName(loc.locale.languageCode)} کو شجرہ سے حذف کرنا چاہتے ہیں؟'
+                              : 'Are you sure you want to permanently delete ${member.localizedName(loc.locale.languageCode)} from the family tree?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: Text(loc.translate('cancel')),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: Text(loc.translate('delete'), style: const TextStyle(color: Colors.white)),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (confirm == true && context.mounted) {
+                      final messenger = ScaffoldMessenger.of(context);
+                      Navigator.pop(context);
+                      try {
+                        await ref.read(familyRepositoryProvider).deleteMember(member.id);
+
+                        await ref.read(auditLogRepositoryProvider).recordLog(
+                          AuditLogModel(
+                            logId: const Uuid().v4(),
+                            action: 'direct_delete_member',
+                            performedBy: currentUser?.uid ?? 'admin',
+                            performedByName: currentUser?.name ?? 'Admin',
+                            performedByRole: currentUser?.role.value ?? 'admin',
+                            performedByPhone: currentUser?.phone,
+                            targetMemberId: member.id,
+                            targetMemberName: member.nameEn,
+                            oldData: member.toJson(),
+                            timestamp: DateTime.now(),
+                          ),
+                        );
+
+                        messenger.showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppColors.danger,
+                            content: Text(
+                              isUrdu
+                                  ? 'رکن کو شجرہ سے مستقل طور پر حذف کر دیا گیا۔'
+                                  : 'Member deleted permanently from family tree.',
+                            ),
+                          ),
+                        );
+                      } catch (e) {
+                        messenger.showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppColors.danger,
+                            content: Text('Failed to delete member: $e'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
+                  label: Text(
+                    isUrdu ? 'شجرہ سے خارج کریں' : 'Direct Delete',
+                    style: const TextStyle(color: AppColors.danger),
+                  ),
+                ),
+              ] else ...[
+                // Member Portal: Request Edit actions only
+                // Edit Name button (Submits request for admin review)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    EditNameDialog.show(context, member, isDirectAdmin: false);
+                  },
+                  icon: const Icon(Icons.edit, size: 18, color: AppColors.gold),
+                  label: Text(
+                    isUrdu ? 'نام میں ترمیم (اردو/EN)' : 'Edit Name (EN/UR)',
+                    style: const TextStyle(color: AppColors.goldLight),
+                  ),
+                ),
+
+                // Edit button (Suggest Edit request)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push('/edit-request/${member.id}');
+                  },
+                  icon: const Icon(Icons.edit_note, size: 18),
+                  label: Text(loc.translate('suggest_edit')),
+                ),
+
+                // Add Child button (Request Add Child)
+                OutlinedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    context.push('/request-add-child/${member.id}');
+                  },
+                  icon: const Icon(Icons.person_add_alt, size: 18),
+                  label: Text(loc.translate('request_add_child')),
+                ),
+
+                // Add / Update Picture (Submits photo request for approval)
+                OutlinedButton.icon(
+                  onPressed: () async {
+                    final scaffoldMessenger = ScaffoldMessenger.of(context);
+                    final result = await FilePicker.platform.pickFiles(
+                      type: FileType.image,
+                      withData: true,
+                    );
+                    if (result != null && result.files.single.bytes != null) {
+                      final bytes = result.files.single.bytes!;
+                      final ext = result.files.single.extension ?? 'jpg';
+
+                      scaffoldMessenger.showSnackBar(
+                        const SnackBar(content: Text('Uploading picture to Supabase Storage...')),
+                      );
+
+                      try {
+                        final storage = ref.read(supabaseStorageServiceProvider);
+                        final url = await storage.uploadMemberImage(
+                          memberId: member.id,
+                          bytes: bytes,
+                          fileExtension: ext,
+                        );
+
+                        // Submit photo request for approval
                         await ref.read(editRequestRepositoryProvider).submitRequest(
                           EditRequest(
                             requestId: '',
@@ -326,6 +505,7 @@ class MemberPreviewSheet extends ConsumerWidget {
                             memberId: member.id,
                             requestedBy: currentUser?.uid ?? 'guest_user',
                             requestedByName: currentUser?.name ?? 'Member',
+                            requestedByPhone: currentUser?.phone,
                             changes: {'image_url': url},
                             reason: 'Uploaded new family portrait photograph.',
                             createdAt: DateTime.now(),
@@ -334,73 +514,18 @@ class MemberPreviewSheet extends ConsumerWidget {
                         scaffoldMessenger.showSnackBar(
                           const SnackBar(content: Text('Picture submitted for Admin approval!')),
                         );
-                      }
-                      if (context.mounted) Navigator.pop(context);
-                    } catch (e) {
-                      scaffoldMessenger.showSnackBar(
-                        SnackBar(content: Text('Upload failed: $e')),
-                      );
-                    }
-                  }
-                },
-                icon: const Icon(Icons.camera_alt, size: 18),
-                label: Text(loc.translate('add_picture')),
-              ),
-
-              // Direct Delete for Admin
-              if (currentUser != null && currentUser.isAdmin)
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(foregroundColor: AppColors.danger),
-                  onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Text(loc.translate('delete_member')),
-                        content: Text(
-                          loc.isUrdu
-                              ? 'کیا آپ واقعی "${member.nameUr.isNotEmpty ? member.nameUr : member.nameEn}" کو حذف کرنا چاہتے ہیں؟'
-                              : 'Are you sure you want to delete "${member.nameEn}"? This action will be recorded in audit log.',
-                        ),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(loc.translate('cancel'))),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: Text(loc.translate('delete')),
-                          ),
-                        ],
-                      ),
-                    );
-                    if (confirm == true) {
-                      await ref.read(familyRepositoryProvider).deleteMember(member.id);
-                      await ref.read(auditLogRepositoryProvider).recordLog(
-                        AuditLogModel(
-                          logId: const Uuid().v4(),
-                          action: 'direct_delete',
-                          performedBy: currentUser.uid,
-                          performedByName: currentUser.name,
-                          performedByRole: currentUser.role.value,
-                          targetMemberId: member.id,
-                          targetMemberName: member.nameEn,
-                          oldData: member.toJson(),
-                          newData: {'deleted': true},
-                          timestamp: DateTime.now(),
-                        ),
-                      );
-                      if (context.mounted) {
-                        Navigator.pop(context);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            backgroundColor: AppColors.danger,
-                            content: Text('Member deleted and logged.'),
-                          ),
+                        if (context.mounted) Navigator.pop(context);
+                      } catch (e) {
+                        scaffoldMessenger.showSnackBar(
+                          SnackBar(content: Text('Upload failed: $e')),
                         );
                       }
                     }
                   },
-                  icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),
-                  label: Text(loc.translate('delete')),
+                  icon: const Icon(Icons.camera_alt, size: 18),
+                  label: Text(loc.translate('add_picture')),
                 ),
+              ],
             ],
           ),
         ],

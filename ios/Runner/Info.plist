@@ -84,5 +84,7 @@
 	</array>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Laghari Family requires access to your photos to upload profile and family member avatars.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Laghari Family requests location access so your account can record your current device location.</string>
 </dict>
 </plist>

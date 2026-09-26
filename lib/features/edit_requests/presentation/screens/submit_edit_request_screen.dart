@@ -16,8 +16,13 @@ import '../../repositories/edit_request_repository.dart';
 
 class SubmitEditRequestScreen extends ConsumerStatefulWidget {
   final String memberId;
+  final bool isDirectAdmin;
 
-  const SubmitEditRequestScreen({super.key, required this.memberId});
+  const SubmitEditRequestScreen({
+    super.key,
+    required this.memberId,
+    this.isDirectAdmin = false,
+  });
 
   @override
   ConsumerState<SubmitEditRequestScreen> createState() =>
@@ -119,19 +124,17 @@ class _SubmitEditRequestScreenState
     _changedOldValues.clear();
     _changedNewValues.clear();
 
-    if (isAdmin) {
-      if (_nameEnController.text.trim() != member.nameEn) {
-        _changedOldValues['name_en'] = member.nameEn;
-        _changedNewValues['name_en'] = _nameEnController.text.trim();
-      }
-      if (_nameUrController.text.trim() != member.nameUr) {
-        _changedOldValues['name_ur'] = member.nameUr;
-        _changedNewValues['name_ur'] = _nameUrController.text.trim();
-      }
-      if (_gender != member.gender) {
-        _changedOldValues['gender'] = member.gender;
-        _changedNewValues['gender'] = _gender;
-      }
+    if (_nameEnController.text.trim() != member.nameEn) {
+      _changedOldValues['name_en'] = member.nameEn;
+      _changedNewValues['name_en'] = _nameEnController.text.trim();
+    }
+    if (_nameUrController.text.trim() != member.nameUr) {
+      _changedOldValues['name_ur'] = member.nameUr;
+      _changedNewValues['name_ur'] = _nameUrController.text.trim();
+    }
+    if (isAdmin && _gender != member.gender) {
+      _changedOldValues['gender'] = member.gender;
+      _changedNewValues['gender'] = _gender;
     }
 
     if (_aliveStatus != member.aliveStatus) {
@@ -207,6 +210,7 @@ class _SubmitEditRequestScreenState
           performedBy: admin.uid,
           performedByName: admin.name,
           performedByRole: admin.role.value,
+          performedByPhone: admin.phone,
           targetMemberId: member.id,
           targetMemberName: member.nameEn,
           oldData: Map.from(_changedOldValues),
@@ -266,6 +270,7 @@ class _SubmitEditRequestScreenState
         targetMemberName: member.nameEn,
         requestedBy: user.uid,
         requestedByName: user.name,
+        requestedByPhone: user.phone,
         selectedAdminId: _selectedAdmin!.uid,
         selectedAdminName: _selectedAdmin!.name,
         changes: Map.from(_changedNewValues),
@@ -303,7 +308,7 @@ class _SubmitEditRequestScreenState
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUser = ref.watch(currentUserProvider);
     final member = ref.watch(familyMembersMapProvider)[widget.memberId];
-    final isAdmin = currentUser?.isAdmin == true;
+    final isDirectAdmin = widget.isDirectAdmin && currentUser?.isAdmin == true;
 
     if (member == null) {
       return Scaffold(
@@ -312,17 +317,17 @@ class _SubmitEditRequestScreenState
       );
     }
 
-    // Step 2: Normal user review summary screen
-    if (_isReviewing && !isAdmin) {
+    // Step 2: Member review summary screen (when requesting edit)
+    if (_isReviewing && !isDirectAdmin) {
       return _buildReviewSummaryScreen(context, loc, isDark, member, currentUser!);
     }
 
-    // Step 1: Form editing screen (Direct for Admin, Step 1 for User)
+    // Step 1: Form editing screen (Direct for Admin Portal, Step 1 for Member Portal)
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          isAdmin
-              ? (loc.isUrdu ? 'رکن کی معلومات میں ترمیم (براہ راست)' : 'Edit Family Member (Direct)')
+          isDirectAdmin
+              ? (loc.isUrdu ? 'رکن کی معلومات میں ترمیم (ایڈمن پورٹل)' : 'Edit Family Member (Admin Portal)')
               : loc.translate('suggest_edit'),
         ),
       ),
@@ -338,32 +343,32 @@ class _SubmitEditRequestScreenState
                 Container(
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: isAdmin
+                    color: isDirectAdmin
                         ? AppColors.emerald.withValues(alpha: isDark ? 0.15 : 0.08)
                         : AppColors.gold.withValues(alpha: isDark ? 0.15 : 0.08),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: isAdmin ? AppColors.emerald : AppColors.gold,
+                      color: isDirectAdmin ? AppColors.emerald : AppColors.gold,
                       width: 1.2,
                     ),
                   ),
                   child: Row(
                     children: [
                       Icon(
-                        isAdmin ? Icons.admin_panel_settings : Icons.info_outline,
-                        color: isAdmin ? AppColors.emerald : AppColors.gold,
+                        isDirectAdmin ? Icons.admin_panel_settings : Icons.info_outline,
+                        color: isDirectAdmin ? AppColors.emerald : AppColors.gold,
                         size: 24,
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
-                          isAdmin
+                          isDirectAdmin
                               ? (loc.isUrdu
                                   ? 'ایڈمن براہ راست ترمیم: آپ کی تبدیلیاں براہ راست خاندانی شجرہ میں محفوظ ہوں گی اور آڈٹ لاگ میں ریکارڈ کی جائیں گی۔'
                                   : 'Admin Direct Edit: Your modifications apply directly to the family tree without approval and are logged in audit history.')
                               : (loc.isUrdu
-                                  ? 'شجرہ کی معلومات میں ترمیم: نام اور صنف تاریخ کی حفاظت کے پیش نظر مقفل ہیں۔ دیگر معلومات میں ترمیم کر کے جائزہ لیں۔'
-                                  : 'Suggest Edit: Names and Gender are locked. You can suggest updates for phone, blood group, profession, dates, and status.'),
+                                  ? 'شجرہ کی معلومات میں ترمیم: نام (انگریزی اور اردو)، تاریخ، رابطہ یا دیگر تفصیلات تبدیل کر کے تصدیق کے لیے جائزہ لیں۔'
+                                  : 'Suggest Edit: Edit English and Urdu name, contact, dates, blood group, profession, and status for admin review.'),
                           style: TextStyle(
                             fontSize: 12,
                             height: 1.4,
@@ -376,26 +381,29 @@ class _SubmitEditRequestScreenState
                 ),
                 const SizedBox(height: 20),
 
-                // Name Fields
-                if (isAdmin) ...[
-                  TextFormField(
-                    controller: _nameEnController,
-                    decoration: InputDecoration(
-                      labelText: loc.translate('name_en'),
-                      prefixIcon: const Icon(Icons.badge_outlined),
-                    ),
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                // Name Fields (Both English and Urdu editable for all)
+                TextFormField(
+                  controller: _nameEnController,
+                  decoration: InputDecoration(
+                    labelText: '${loc.translate('name_en')} (English)',
+                    hintText: 'e.g. Ghulam Hussain Khan',
+                    prefixIcon: const Icon(Icons.badge_outlined),
                   ),
-                  const SizedBox(height: 16),
-                  TextFormField(
-                    controller: _nameUrController,
-                    decoration: InputDecoration(
-                      labelText: loc.translate('name_ur'),
-                      prefixIcon: const Icon(Icons.badge),
-                    ),
-                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Required' : null,
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'English name is required' : null,
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: _nameUrController,
+                  textDirection: TextDirection.rtl,
+                  decoration: InputDecoration(
+                    labelText: '${loc.translate('name_ur')} (اردو نام)',
+                    hintText: 'مثلاً: غلام حسین خان',
+                    prefixIcon: const Icon(Icons.badge),
                   ),
-                  const SizedBox(height: 16),
+                  validator: (v) => (v == null || v.trim().isEmpty) ? 'Urdu name is required' : null,
+                ),
+                const SizedBox(height: 16),
+                if (isDirectAdmin) ...[
                   DropdownButtonFormField<String>(
                     initialValue: _gender,
                     decoration: InputDecoration(
@@ -409,29 +417,6 @@ class _SubmitEditRequestScreenState
                     onChanged: (val) {
                       if (val != null) setState(() => _gender = val);
                     },
-                  ),
-                  const SizedBox(height: 16),
-                ] else ...[
-                  // Locked Read-only Member Card
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isDark ? AppColors.darkCard : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          member.nameEn,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        Text(
-                          member.nameUr,
-                          style: const TextStyle(fontSize: 14, color: AppColors.gold),
-                        ),
-                      ],
-                    ),
                   ),
                   const SizedBox(height: 16),
                 ],
@@ -539,8 +524,8 @@ class _SubmitEditRequestScreenState
                 ),
                 const SizedBox(height: 16),
 
-                // Reason (For Normal User)
-                if (!isAdmin) ...[
+                // Reason (For Member Portal edit requests)
+                if (!isDirectAdmin) ...[
                   TextFormField(
                     controller: _reasonController,
                     maxLines: 2,
@@ -555,7 +540,7 @@ class _SubmitEditRequestScreenState
                 ],
 
                 // Action Button
-                if (isAdmin)
+                if (isDirectAdmin)
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.emerald,
@@ -706,10 +691,15 @@ class _SubmitEditRequestScreenState
               adminsAsync.when(
                 loading: () => const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator())),
                 error: (e, _) => Text('Error loading admins: $e'),
-                data: (admins) {
-                  if (_selectedAdmin == null && admins.isNotEmpty) {
+                data: (allAdmins) {
+                  final validAdmins = allAdmins
+                      .where((a) => a.uid != currentUser.uid && a.isAdmin && !a.status.isBlocked)
+                      .toList();
+                  final displayAdmins = validAdmins.isNotEmpty ? validAdmins : allAdmins;
+
+                  if (_selectedAdmin == null && displayAdmins.isNotEmpty) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) setState(() => _selectedAdmin = admins.first);
+                      if (mounted) setState(() => _selectedAdmin = displayAdmins.first);
                     });
                   }
 
@@ -722,24 +712,48 @@ class _SubmitEditRequestScreenState
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<UserModel>(
                         isExpanded: true,
-                        value: _selectedAdmin,
+                        value: displayAdmins.contains(_selectedAdmin) ? _selectedAdmin : (displayAdmins.isNotEmpty ? displayAdmins.first : null),
                         hint: Text(loc.translate('select_admin_hint')),
-                        items: admins.map((adm) {
+                        items: displayAdmins.map((adm) {
                           return DropdownMenuItem<UserModel>(
                             value: adm,
                             child: Row(
                               children: [
                                 Icon(
                                   adm.role.isSuperAdmin ? Icons.shield : Icons.security,
-                                  size: 18,
+                                  size: 20,
                                   color: adm.role.isSuperAdmin ? AppColors.gold : AppColors.emerald,
                                 ),
-                                const SizedBox(width: 8),
-                                Text(adm.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                const SizedBox(width: 8),
-                                Text(
-                                  '(${adm.role.isSuperAdmin ? 'Super Admin' : 'Admin'})',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textLightSecondary),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              adm.name,
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '(${adm.role.isSuperAdmin ? "Super Admin" : "Admin"})',
+                                            style: const TextStyle(fontSize: 10.5, color: AppColors.textLightSecondary),
+                                          ),
+                                        ],
+                                      ),
+                                      if (adm.email.isNotEmpty)
+                                        Text(
+                                          adm.email,
+                                          style: const TextStyle(fontSize: 11, color: AppColors.textLightSecondary),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                    ],
+                                  ),
                                 ),
                               ],
                             ),

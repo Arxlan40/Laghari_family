@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../../core/services/device_info_service.dart';
 import '../../providers/auth_provider.dart';
 
 class AdminLoginScreen extends ConsumerStatefulWidget {
@@ -53,6 +54,14 @@ class _AdminLoginScreenState extends ConsumerState<AdminLoginScreen> {
             ),
           );
         } else {
+          final devInfo = DeviceInfoService.cachedDeviceInfo;
+          if (devInfo != null) {
+            ref.read(authRepositoryProvider).updateUserDeviceInfo(user.uid, devInfo);
+          } else {
+            DeviceInfoService.collectDeviceInfo().then((info) {
+              ref.read(authRepositoryProvider).updateUserDeviceInfo(user.uid, info);
+            });
+          }
           context.go('/admin/dashboard');
         }
       }

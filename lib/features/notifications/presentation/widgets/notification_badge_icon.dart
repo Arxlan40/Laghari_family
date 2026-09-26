@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../auth/providers/auth_provider.dart';
 import '../../repositories/notification_repository.dart';
 
 class NotificationBadgeIcon extends ConsumerWidget {
@@ -17,7 +18,23 @@ class NotificationBadgeIcon extends ConsumerWidget {
 
     return IconButton(
       tooltip: loc.translate('notifications'),
-      onPressed: () => context.push('/notifications'),
+      onPressed: () {
+        // 1. Immediately clear the badge visually
+        ref.read(badgeClearedOptimisticallyProvider.notifier).state = true;
+
+        // 2. Mark all unread notifications of the current user as read in background/Firestore
+        final currentUser = ref.read(currentUserProvider);
+        if (currentUser != null) {
+          ref.read(notificationRepositoryProvider).markAllAsRead(
+                currentUser.uid,
+                isAdmin: currentUser.isAdmin,
+                isSuperAdmin: currentUser.isSuperAdmin,
+              );
+        }
+
+        // 3. Open notifications screen
+        context.push('/notifications');
+      },
       icon: Badge.count(
         count: unreadCount,
         isLabelVisible: unreadCount > 0,

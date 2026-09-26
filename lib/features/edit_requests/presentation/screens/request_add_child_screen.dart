@@ -18,8 +18,13 @@ import '../../repositories/edit_request_repository.dart';
 
 class RequestAddChildScreen extends ConsumerStatefulWidget {
   final String fatherId;
+  final bool isDirectAdmin;
 
-  const RequestAddChildScreen({super.key, required this.fatherId});
+  const RequestAddChildScreen({
+    super.key,
+    required this.fatherId,
+    this.isDirectAdmin = false,
+  });
 
   @override
   ConsumerState<RequestAddChildScreen> createState() =>
@@ -163,6 +168,7 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
           performedBy: admin.uid,
           performedByName: admin.name,
           performedByRole: admin.role.value,
+          performedByPhone: admin.phone,
           targetMemberId: newId,
           targetMemberName: newMember.nameEn,
           oldData: {'father_id': father.id, 'father_name': father.nameEn},
@@ -217,6 +223,7 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
         targetMemberName: father.nameEn,
         requestedBy: user.uid,
         requestedByName: user.name,
+        requestedByPhone: user.phone,
         selectedAdminId: _selectedAdmin!.uid,
         selectedAdminName: _selectedAdmin!.name,
         changes: data,
@@ -256,7 +263,7 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final father = ref.watch(familyMembersMapProvider)[widget.fatherId];
     final currentUser = ref.watch(currentUserProvider);
-    final isAdmin = currentUser?.isAdmin == true;
+    final isDirectAdmin = widget.isDirectAdmin && currentUser?.isAdmin == true;
 
     if (father == null) {
       return Scaffold(
@@ -265,17 +272,17 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
       );
     }
 
-    // Step 2 for Normal Users: Review Summary Screen
-    if (_isReviewing && !isAdmin) {
+    // Step 2 for Normal Users & Member Portal: Review Summary Screen
+    if (_isReviewing && !isDirectAdmin) {
       return _buildReviewSummaryScreen(context, loc, isDark, father, currentUser!);
     }
 
-    // Step 1: Form Screen (Direct for Admin, Step 1 for User)
+    // Step 1: Form Screen (Direct for Admin Portal, Step 1 for Member Portal)
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          isAdmin
-              ? (loc.isUrdu ? 'بچے کا اندراج (براہ راست)' : 'Add Child (Direct)')
+          isDirectAdmin
+              ? (loc.isUrdu ? 'بچے کا اندراج (ایڈمن پورٹل)' : 'Add Child (Admin Portal)')
               : loc.translate('request_add_child'),
         ),
       ),
@@ -307,20 +314,20 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isAdmin
+                    color: isDirectAdmin
                         ? AppColors.emerald.withValues(alpha: isDark ? 0.15 : 0.08)
                         : AppColors.gold.withValues(alpha: isDark ? 0.15 : 0.08),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: isAdmin ? AppColors.emerald : AppColors.gold),
+                    border: Border.all(color: isDirectAdmin ? AppColors.emerald : AppColors.gold),
                   ),
                   child: Row(
                     children: [
-                      Icon(isAdmin ? Icons.admin_panel_settings : Icons.info_outline,
-                          color: isAdmin ? AppColors.emerald : AppColors.gold, size: 20),
+                      Icon(isDirectAdmin ? Icons.admin_panel_settings : Icons.info_outline,
+                          color: isDirectAdmin ? AppColors.emerald : AppColors.gold, size: 20),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          isAdmin
+                          isDirectAdmin
                               ? (loc.isUrdu
                                   ? 'ایڈمن اندراج: بچہ براہ راست شجرہ میں شامل ہوگا اور آڈٹ لاگ میں ریکارڈ ہوگا۔'
                                   : 'Admin Direct Action: The child is added directly to the tree without approval and logged in audit history.')
@@ -504,8 +511,8 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Reason (For User)
-                if (!isAdmin) ...[
+                // Reason (For Member Portal edit requests)
+                if (!isDirectAdmin) ...[
                   TextFormField(
                     controller: _reasonController,
                     maxLines: 2,
@@ -519,7 +526,7 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
                 ],
 
                 // Action Button
-                if (isAdmin)
+                if (isDirectAdmin)
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.emerald,

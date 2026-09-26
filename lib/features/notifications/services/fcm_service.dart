@@ -28,7 +28,7 @@ Data:  ${message.data}
       final plugin = FlutterLocalNotificationsPlugin();
       const channel = AndroidNotificationChannel(
         'high_importance_channel',
-        'High Importance Notifications',
+        'Laghari Family Notifications',
         description: 'This channel is used for important family updates and notifications.',
         importance: Importance.max,
         playSound: true,
@@ -45,8 +45,11 @@ Data:  ${message.data}
           importance: Importance.max,
           priority: Priority.high,
           icon: '@mipmap/ic_launcher',
+          largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+          subText: 'Laghari Family',
           playSound: true,
           enableVibration: true,
+          channelShowBadge: true,
         ),
       );
       await plugin.show(
@@ -70,7 +73,7 @@ class FcmService {
 
   static const AndroidNotificationChannel channel = AndroidNotificationChannel(
     'high_importance_channel', // id
-    'High Importance Notifications', // title
+    'Laghari Family Notifications', // title
     description: 'This channel is used for important family tree updates and notifications.',
     importance: Importance.max,
     playSound: true,
@@ -219,6 +222,8 @@ Data:  ${message.data}
         importance: Importance.max,
         priority: Priority.high,
         icon: '@mipmap/ic_launcher',
+        largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+        subText: 'Laghari Family',
         playSound: true,
         enableVibration: true,
         channelShowBadge: true,

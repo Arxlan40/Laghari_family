@@ -105,6 +105,7 @@ class EditRequest {
   final String? targetMemberName;
   final String requestedBy;
   final String requestedByName;
+  final String? requestedByPhone;
   final String? selectedAdminId;
   final String? selectedAdminName;
   final RequestStatus status;
@@ -133,6 +134,7 @@ class EditRequest {
     this.targetMemberName,
     required this.requestedBy,
     required this.requestedByName,
+    this.requestedByPhone,
     this.selectedAdminId,
     this.selectedAdminName,
     this.status = RequestStatus.pending,
@@ -180,6 +182,7 @@ class EditRequest {
       targetMemberName: (json['target_member_name'] ?? json['targetMemberName'])?.toString(),
       requestedBy: (json['requested_by'] ?? json['submitted_by'] ?? json['submittedBy'] ?? '').toString(),
       requestedByName: (json['requested_by_name'] ?? json['submitted_by_name'] ?? json['submittedByName'] ?? '').toString(),
+      requestedByPhone: (json['requested_by_phone'] ?? json['requestedByPhone'] ?? json['user_phone'] ?? json['phone'])?.toString(),
       selectedAdminId: (json['selected_admin_id'] ?? json['selectedAdminId'])?.toString(),
       selectedAdminName: (json['selected_admin_name'] ?? json['selectedAdminName'])?.toString(),
       status: RequestStatus.fromString(json['status']?.toString()),
@@ -213,6 +216,7 @@ class EditRequest {
       'submitted_by': requestedBy,
       'requested_by_name': requestedByName,
       'submitted_by_name': requestedByName,
+      'requested_by_phone': requestedByPhone,
       'selected_admin_id': selectedAdminId,
       'selected_admin_name': selectedAdminName,
       'status': status.value,
@@ -237,6 +241,7 @@ class EditRequest {
     String? targetMemberName,
     String? requestedBy,
     String? requestedByName,
+    String? requestedByPhone,
     String? selectedAdminId,
     String? selectedAdminName,
     RequestStatus? status,
@@ -259,6 +264,7 @@ class EditRequest {
       targetMemberName: targetMemberName ?? this.targetMemberName,
       requestedBy: requestedBy ?? this.requestedBy,
       requestedByName: requestedByName ?? this.requestedByName,
+      requestedByPhone: requestedByPhone ?? this.requestedByPhone,
       selectedAdminId: selectedAdminId ?? this.selectedAdminId,
       selectedAdminName: selectedAdminName ?? this.selectedAdminName,
       status: status ?? this.status,

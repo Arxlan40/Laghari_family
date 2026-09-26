@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/presentation/widgets/app_drawer.dart';
+import '../../../auth/providers/auth_provider.dart';
 import '../../../notifications/presentation/widgets/notification_badge_icon.dart';
 import '../widgets/tree_canvas_widget.dart';
 
@@ -58,7 +59,10 @@ class FamilyTreeScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: TreeCanvasWidget(initialFocusMemberId: focusMemberId),
+      body: TreeCanvasWidget(
+        initialFocusMemberId: focusMemberId,
+        isDirectAdmin: ref.watch(currentUserProvider)?.isAdmin ?? false,
+      ),
     );
   }
 }

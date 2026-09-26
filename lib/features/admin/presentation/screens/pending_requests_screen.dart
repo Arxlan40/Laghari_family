@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../auth/providers/auth_provider.dart';
@@ -197,6 +198,12 @@ class PendingRequestsScreen extends ConsumerWidget {
                         _buildNewChildInfoCard(req, targetMember, loc)
                       else
                         _buildEditChangesCard(req, targetMember, loc),
+
+                      const SizedBox(height: 12),
+
+                      // 3. "Open in Tree" Navigation Button — lets admin jump to the target member
+                      if (req.memberId != null && req.memberId!.isNotEmpty)
+                        _buildOpenInTreeButton(context, ref, req, targetMember, loc),
 
                       const SizedBox(height: 18),
 
@@ -400,13 +407,17 @@ class PendingRequestsScreen extends ConsumerWidget {
               spacing: 16,
               runSpacing: 6,
               children: [
-                // Phone
-                if (requester.phone.isNotEmpty)
-                  InkWell(
+                // Phone — prefer full profile phone, fall back to request's phone
+                Builder(builder: (_) {
+                  final phone = (requester.phone.isNotEmpty)
+                      ? requester.phone
+                      : (req.requestedByPhone ?? '');
+                  if (phone.isEmpty) return const SizedBox.shrink();
+                  return InkWell(
                     onTap: () {
-                      Clipboard.setData(ClipboardData(text: requester.phone));
+                      Clipboard.setData(ClipboardData(text: phone));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Phone number copied: ${requester.phone}')),
+                        SnackBar(content: Text('Phone number copied: $phone')),
                       );
                     },
                     child: Row(
@@ -415,7 +426,7 @@ class PendingRequestsScreen extends ConsumerWidget {
                         const Icon(Icons.phone, size: 14, color: AppColors.gold),
                         const SizedBox(width: 4),
                         Text(
-                          requester.phone,
+                          phone,
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -424,7 +435,8 @@ class PendingRequestsScreen extends ConsumerWidget {
                         ),
                       ],
                     ),
-                  ),
+                  );
+                }),
 
                 // Email
                 if (requester.email.isNotEmpty)
@@ -470,6 +482,34 @@ class PendingRequestsScreen extends ConsumerWidget {
               ],
             ),
           ] else ...[
+            // No full profile available — show request-level phone and user ID
+            if (req.requestedByPhone != null && req.requestedByPhone!.isNotEmpty)
+              InkWell(
+                onTap: () {
+                  Clipboard.setData(ClipboardData(text: req.requestedByPhone!));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Phone number copied: ${req.requestedByPhone}')),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.phone, size: 14, color: AppColors.gold),
+                      const SizedBox(width: 4),
+                      Text(
+                        req.requestedByPhone!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.goldLight,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             Row(
               children: [
                 const Icon(Icons.badge, size: 14, color: AppColors.textLightSecondary),
@@ -585,8 +625,8 @@ class PendingRequestsScreen extends ConsumerWidget {
                   children: [
                     if (changes.containsKey('gender'))
                       _buildBadge(
-                        changes['gender'] == 'female' ? loc.translate('female') : loc.translate('male'),
-                        changes['gender'] == 'female' ? AppColors.femaleAccent : AppColors.maleAccent,
+                        changes['gender']?.toString().toLowerCase() == 'female' ? loc.translate('female') : loc.translate('male'),
+                        changes['gender']?.toString().toLowerCase() == 'female' ? AppColors.femaleAccent : AppColors.maleAccent,
                       ),
                     if (changes.containsKey('generation'))
                       _buildBadge(
@@ -808,6 +848,47 @@ class PendingRequestsScreen extends ConsumerWidget {
       child: Text(
         label,
         style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: color),
+      ),
+    );
+  }
+
+  /// Builds an "Open in Tree" navigation button that lets the admin jump to the
+  /// target family member directly in the tree canvas.
+  Widget _buildOpenInTreeButton(
+    BuildContext context,
+    WidgetRef ref,
+    EditRequest req,
+    FamilyMember? targetMember,
+    AppLocalizations loc,
+  ) {
+    final memberName = targetMember?.localizedName(loc.locale.languageCode)
+        ?? req.targetMemberName
+        ?? req.memberId;
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 4),
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.emeraldLight,
+          side: BorderSide(color: AppColors.emerald.withValues(alpha: 0.5)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+        ),
+        icon: const Icon(Icons.account_tree, size: 18),
+        label: Text(
+          loc.isUrdu
+              ? 'درخت میں کھولیں: $memberName'
+              : 'Open in Tree: $memberName',
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+        onPressed: () {
+          // Set focus target so tree canvas will pan to this member
+          ref.read(treeFocusTargetProvider.notifier).state = req.memberId;
+          ref.read(familyTreeStateProvider.notifier).selectMember(req.memberId!);
+          // Navigate to the family tree with the focus query parameter
+          context.go('/family-tree?focusMemberId=${req.memberId}');
+        },
       ),
     );
   }

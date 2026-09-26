@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/localization/locale_provider.dart';
+import '../../../../core/services/device_info_service.dart';
 import '../../../../core/theme/theme_provider.dart';
 import '../../providers/auth_provider.dart';
 
@@ -42,13 +43,27 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await ref.read(authRepositoryProvider).signInWithEmail(
+      final user = await ref.read(authRepositoryProvider).signInWithEmail(
             email: email,
             password: password,
             isAdminLogin: false,
           );
       if (mounted) {
-        context.go('/family-tree');
+        // Save device details and location to user in Firestore
+        final devInfo = DeviceInfoService.cachedDeviceInfo;
+        if (devInfo != null) {
+          ref.read(authRepositoryProvider).updateUserDeviceInfo(user.uid, devInfo);
+        } else {
+          DeviceInfoService.collectDeviceInfo().then((info) {
+            ref.read(authRepositoryProvider).updateUserDeviceInfo(user.uid, info);
+          });
+        }
+
+        if (user.isAdmin) {
+          context.go('/admin/dashboard');
+        } else {
+          context.go('/family-tree');
+        }
       }
     } catch (e) {
       if (mounted) {

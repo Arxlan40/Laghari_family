@@ -16,6 +16,7 @@ class FamilyRepository {
 
   // In-memory cache & fallback when running in offline/demo mode
   final Map<String, FamilyMember> _inMemoryStore = {};
+  final Set<String> _deletedMemberIds = {};
   bool _localLoaded = false;
   Future<void>? _loadingFuture;
 
@@ -26,8 +27,34 @@ class FamilyRepository {
   CollectionReference<Map<String, dynamic>> get _membersCollection =>
       _firestore!.collection(AppConfig.familyMembersCollection);
 
+  CollectionReference<Map<String, dynamic>> get _deletedMembersCollection =>
+      _firestore!.collection('deleted_members');
+
   DocumentReference<Map<String, dynamic>> get _appSettingsDoc =>
       _firestore!.collection(AppConfig.settingsCollection).doc(AppConfig.appSettingsDoc);
+
+  /// Loads permanently deleted member IDs from SharedPreferences and Firestore
+  Future<void> _loadDeletedMemberIds() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final localDeleted = prefs.getStringList('deleted_member_ids') ?? [];
+      _deletedMemberIds.addAll(localDeleted);
+
+      if (_hasLiveFirestore) {
+        try {
+          final snap = await _deletedMembersCollection.get();
+          for (final doc in snap.docs) {
+            _deletedMemberIds.add(doc.id);
+          }
+          await prefs.setStringList('deleted_member_ids', _deletedMemberIds.toList());
+        } catch (e) {
+          debugPrint('Firestore deleted_members fetch note: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading deleted member IDs: $e');
+    }
+  }
 
   /// Loads family tree from local storage file or bundled assets immediately.
   Future<void> _loadLocalData() async {
@@ -43,6 +70,7 @@ class FamilyRepository {
   }
 
   Future<void> _doLoadLocalData() async {
+    await _loadDeletedMemberIds();
     try {
       String? jsonStr;
       if (!kIsWeb) {
@@ -75,6 +103,8 @@ class FamilyRepository {
       final dynamic raw = jsonDecode(jsonStr);
       final report = JsonValidator.validate(raw);
       for (final member in report.validMembers) {
+        // Never restore members that were deleted
+        if (_deletedMemberIds.contains(member.id)) continue;
         _inMemoryStore[member.id] = member;
       }
       _localLoaded = true;
@@ -179,15 +209,19 @@ class FamilyRepository {
       try {
         await for (final snapshot in _membersCollection.snapshots()) {
           if (snapshot.docs.isNotEmpty) {
+            final liveIds = <String>{};
             for (final doc in snapshot.docs) {
+              if (_deletedMemberIds.contains(doc.id)) continue;
               try {
                 final member = FamilyMember.fromJson(doc.data());
                 _inMemoryStore[member.id] = member;
+                liveIds.add(member.id);
               } catch (e) {
                 debugPrint('Error parsing Firestore member ${doc.id}: $e');
               }
             }
-            // Persist latest data to local file cache
+            // Actively remove any in-memory store members not in Firestore or in deleted list
+            _inMemoryStore.removeWhere((id, _) => !liveIds.contains(id) || _deletedMemberIds.contains(id));
             _saveToLocalFile();
             yield _inMemoryStore.values.toList();
           } else {
@@ -214,12 +248,16 @@ class FamilyRepository {
       try {
         final snap = await _membersCollection.get();
         if (snap.docs.isNotEmpty) {
+          final liveIds = <String>{};
           for (final d in snap.docs) {
+            if (_deletedMemberIds.contains(d.id)) continue;
             try {
               final m = FamilyMember.fromJson(d.data());
               _inMemoryStore[m.id] = m;
+              liveIds.add(m.id);
             } catch (_) {}
           }
+          _inMemoryStore.removeWhere((id, _) => !liveIds.contains(id) || _deletedMemberIds.contains(id));
           await _saveToLocalFile();
         }
       } catch (e) {
@@ -232,6 +270,7 @@ class FamilyRepository {
 
   /// Fetches a single family member by ID.
   Future<FamilyMember?> getMemberById(String id) async {
+    if (_deletedMemberIds.contains(id)) return null;
     if (_inMemoryStore.isEmpty) {
       await _loadLocalData();
     }
@@ -257,6 +296,7 @@ class FamilyRepository {
 
   /// Saves or updates a member in memory, local storage file, and Firestore.
   Future<void> saveMember(FamilyMember member) async {
+    _deletedMemberIds.remove(member.id);
     if (_inMemoryStore.isEmpty) {
       await _loadLocalData();
     }
@@ -283,6 +323,10 @@ class FamilyRepository {
               member.toJson(),
               SetOptions(merge: true),
             );
+        // Remove from deleted_members if previously present
+        try {
+          await _deletedMembersCollection.doc(member.id).delete();
+        } catch (_) {}
 
         if (member.fatherId != null && member.fatherId!.isNotEmpty) {
           final fatherDoc = await _membersCollection.doc(member.fatherId).get();
@@ -303,35 +347,92 @@ class FamilyRepository {
     }
   }
 
-  /// Deletes a member from memory, local storage, and Firestore.
+  /// Deletes a member permanently from memory, local storage, and Firestore.
   Future<void> deleteMember(String id) async {
+    // 1. Mark permanently deleted in cache & SharedPreferences
+    _deletedMemberIds.add(id);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('deleted_member_ids', _deletedMemberIds.toList());
+    } catch (_) {}
+
+    // 2. Remove from in-memory store
     final member = _inMemoryStore.remove(id);
-    if (member?.fatherId != null && _inMemoryStore.containsKey(member!.fatherId)) {
-      final father = _inMemoryStore[member.fatherId!];
-      if (father != null && father.childrenIds.contains(id)) {
-        final updatedChildren = father.childrenIds.where((cid) => cid != id).toList();
-        _inMemoryStore[father.id] = father.copyWith(childrenIds: updatedChildren);
+
+    // 3. Update father and children relations in memory
+    if (member != null) {
+      if (member.fatherId != null && _inMemoryStore.containsKey(member.fatherId)) {
+        final father = _inMemoryStore[member.fatherId!];
+        if (father != null) {
+          final updatedChildren = father.childrenIds.where((cid) => cid != id).toList();
+          // Adopt orphaned children into grandfather's children list
+          for (final cid in member.childrenIds) {
+            if (!updatedChildren.contains(cid)) {
+              updatedChildren.add(cid);
+            }
+          }
+          _inMemoryStore[father.id] = father.copyWith(childrenIds: updatedChildren);
+        }
+      }
+      // Re-parent children to grandfather
+      for (final cid in member.childrenIds) {
+        if (_inMemoryStore.containsKey(cid)) {
+          final child = _inMemoryStore[cid]!;
+          _inMemoryStore[cid] = child.copyWith(fatherId: member.fatherId);
+        }
       }
     }
 
+    // 4. Persist updated in-memory state to local storage
     await _saveToLocalFile();
 
+    // 5. Update Firestore
     if (_hasLiveFirestore) {
       try {
-        await _membersCollection.doc(id).delete();
+        final batch = _firestore!.batch();
+
+        // Delete from family_members
+        batch.delete(_membersCollection.doc(id));
+
+        // Record in deleted_members collection
+        batch.set(_deletedMembersCollection.doc(id), {
+          'deleted_at': FieldValue.serverTimestamp(),
+          'member_id': id,
+        }, SetOptions(merge: true));
+
+        // Update father document in Firestore
         if (member?.fatherId != null) {
           final fatherDoc = await _membersCollection.doc(member!.fatherId).get();
           if (fatherDoc.exists && fatherDoc.data() != null) {
             final father = FamilyMember.fromJson(fatherDoc.data()!);
             final updatedChildren = father.childrenIds.where((cid) => cid != id).toList();
-            await _membersCollection.doc(father.id).update({
+            for (final cid in member.childrenIds) {
+              if (!updatedChildren.contains(cid)) {
+                updatedChildren.add(cid);
+              }
+            }
+            batch.update(_membersCollection.doc(father.id), {
               'children_ids': updatedChildren,
               'updated_at': DateTime.now().toIso8601String(),
             });
           }
         }
+
+        // Update children's fatherId in Firestore
+        if (member != null && member.childrenIds.isNotEmpty) {
+          for (final cid in member.childrenIds) {
+            batch.update(_membersCollection.doc(cid), {
+              'father_id': member.fatherId,
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+          }
+        }
+
+        await batch.commit();
+        debugPrint('Successfully deleted member $id permanently from Firestore.');
       } catch (e) {
         debugPrint('Error deleting member from Firestore: $e');
+        rethrow;
       }
     }
   }
