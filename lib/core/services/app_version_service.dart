@@ -204,6 +204,15 @@ class AppVersionService {
   /// Checks if an update is available by comparing local vs remote semver.
   Future<({bool updateAvailable, String currentVersion, RemoteVersionInfo? remoteInfo})>
       checkForUpdate() async {
+    // On web, updates are delivered automatically via web deployment; skip version checks
+    if (kIsWeb) {
+      return (
+        updateAvailable: false,
+        currentVersion: AppConfig.appVersion,
+        remoteInfo: null,
+      );
+    }
+
     try {
       final currentVersion = await getLocalVersion();
       final remoteInfo = await getRemoteVersionInfo();

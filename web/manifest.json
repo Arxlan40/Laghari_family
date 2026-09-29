@@ -1,11 +1,11 @@
 {
-    "name": "laghari_family",
-    "short_name": "laghari_family",
+    "name": "Laghari Family Tree | شجرہ نسب لغاری خاندان",
+    "short_name": "Laghari Family",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#0B0F19",
+    "theme_color": "#D4AF37",
+    "description": "Official Laghari Clan Genealogy Application",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

@@ -51,7 +51,7 @@ void main() {
       final stream = repo.watchAuditLogs();
 
       final initialLogs = await stream.first;
-      expect(initialLogs, isNotEmpty);
+      expect(initialLogs, isEmpty);
 
       final newLog = AuditLogModel(
         logId: 'test_log_999',

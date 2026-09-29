@@ -8,6 +8,7 @@ import 'core/config/supabase_config.dart';
 import 'core/localization/app_localizations.dart';
 import 'core/localization/locale_provider.dart';
 import 'core/router/app_router.dart';
+import 'core/services/crashlytics_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'features/notifications/services/fcm_service.dart';
@@ -15,15 +16,28 @@ import 'features/notifications/services/fcm_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase (safely catch if running in demo/offline mode)
+  // Initialize Firebase Core
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    print('Firebase initialized successfully.');
+    debugPrint('Firebase initialized successfully.');
+  } catch (e, stack) {
+    debugPrint('Firebase initialization error: $e\n$stack');
+  }
+
+  // Initialize Crashlytics
+  try {
+    await CrashlyticsService.instance.initialize();
+  } catch (e, stack) {
+    debugPrint('Crashlytics initialization error: $e\n$stack');
+  }
+
+  // Initialize Firebase Cloud Messaging
+  try {
     await FcmService.initialize();
-  } catch (e) {
-    print('Firebase initialization note: $e');
+  } catch (e, stack) {
+    debugPrint('FCM initialization error: $e\n$stack');
   }
 
   // Initialize Supabase Storage client

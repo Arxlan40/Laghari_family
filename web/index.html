@@ -24,24 +24,93 @@
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
-  <meta name="apple-mobile-web-app-title" content="laghari_family">
+  <meta name="apple-mobile-web-app-title" content="Laghari Family">
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png?v=2"/>
+  <link rel="shortcut icon" type="image/png" href="favicon.png?v=2"/>
 
-  <title>laghari_family</title>
+  <title>Laghari Family Tree | شجرہ نسب لغاری خاندان</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #0b0f19;
+      color: #ffffff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      overflow: hidden;
+    }
+    #app-loading-screen {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background-color: #0b0f19;
+      z-index: 99999;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+    .crest-avatar {
+      width: 100px;
+      height: 100px;
+      border-radius: 50%;
+      border: 3px solid #d4af37;
+      box-shadow: 0 0 25px rgba(212, 175, 55, 0.4);
+      margin-bottom: 20px;
+      object-fit: cover;
+    }
+    .spinner {
+      width: 34px;
+      height: 34px;
+      border: 3px solid rgba(212, 175, 55, 0.2);
+      border-top-color: #d4af37;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .app-title {
+      margin-top: 16px;
+      color: #d4af37;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 <body>
-  <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
-
-    For more details:
-    * https://docs.flutter.dev/platform-integration/web/initialization
-  -->
+  <div id="app-loading-screen">
+    <img src="icons/Icon-192.png" alt="Laghari Family Crest" class="crest-avatar">
+    <div class="spinner"></div>
+    <div class="app-title">شجرہ نسب لغاری خاندان</div>
+  </div>
+  <script>
+    function removeAppLoadingScreen() {
+      var loader = document.getElementById('app-loading-screen');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(function() {
+          if (loader && loader.parentNode) {
+            loader.parentNode.removeChild(loader);
+          }
+        }, 300);
+      }
+    }
+    window.addEventListener('flutter-first-frame', removeAppLoadingScreen);
+    var observer = new MutationObserver(function(mutations, obs) {
+      if (document.querySelector('flutter-view, flt-glass-pane, flt-scene-host')) {
+        setTimeout(removeAppLoadingScreen, 150);
+        obs.disconnect();
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(removeAppLoadingScreen, 3000);
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

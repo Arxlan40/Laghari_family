@@ -311,7 +311,16 @@ class UserModel {
       email: (json['email'] ?? '').toString().trim(),
       address: (json['address'] ?? '').toString().trim(),
       phone: (json['phone'] ?? '').toString().trim(),
-      profileImageUrl: (json['profile_image_url'] ?? '').toString().trim(),
+      profileImageUrl: (json['profile_image_url'] ??
+              json['profileImageUrl'] ??
+              json['photoUrl'] ??
+              json['photo_url'] ??
+              json['imageUrl'] ??
+              json['image_url'] ??
+              json['avatar'] ??
+              '')
+          .toString()
+          .trim(),
       role: UserRole.fromString(json['role']?.toString()),
       status: AccountStatus.fromString(json['status']?.toString()),
       bloodGroup: (rawBlood != null && rawBlood.isNotEmpty) ? rawBlood : 'Unknown',

@@ -1,10 +1,15 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../../../core/config/app_config.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/localization/locale_provider.dart';
 import '../../../../core/theme/theme_provider.dart';
+import '../../../../core/utils/url_helper.dart';
+import '../../../auth/presentation/widgets/change_password_dialog.dart';
+import '../../../auth/presentation/widgets/delete_account_dialog.dart';
 import '../../../auth/providers/auth_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -213,8 +218,8 @@ class SettingsScreen extends ConsumerWidget {
 
               const SizedBox(height: 24),
 
-              // 3. Account Section
-              _buildSectionHeader(isUrdu ? 'اکاؤنٹ' : 'Account', isDark),
+              // 3. Account & Security Section
+              _buildSectionHeader(isUrdu ? 'اکاؤنٹ اور سیکیورٹی' : 'Account & Security', isDark),
               const SizedBox(height: 8),
               Card(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
@@ -250,6 +255,66 @@ class SettingsScreen extends ConsumerWidget {
                       onTap: () => context.push('/my-profile'),
                     ),
                     const Divider(height: 1, indent: 64),
+
+                    // Change Password Option
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.gold.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.lock_reset, color: AppColors.gold, size: 20),
+                      ),
+                      title: Text(
+                        isUrdu ? 'پاس ورڈ تبدیل کریں' : 'Change Password',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                      ),
+                      subtitle: Text(
+                        isUrdu ? 'اپنا لاگ ان پاس ورڈ اپڈیٹ کریں' : 'Update your account login password',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                      onTap: () => ChangePasswordDialog.show(context),
+                    ),
+                    const Divider(height: 1, indent: 64),
+
+                    // Delete Account Option
+                    ListTile(
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.danger.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.delete_forever_outlined, color: AppColors.danger, size: 20),
+                      ),
+                      title: Text(
+                        isUrdu ? 'اکاؤنٹ مستقل حذف کریں' : 'Delete Account',
+                        style: const TextStyle(
+                          color: AppColors.danger,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14.5,
+                        ),
+                      ),
+                      subtitle: Text(
+                        isUrdu
+                            ? 'گوگل پلے پالیسی کے مطابق اکاؤنٹ اور ڈیٹا حذف کریں'
+                            : 'Permanently remove your account and personal data',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 14, color: AppColors.danger),
+                      onTap: () => DeleteAccountDialog.show(context),
+                    ),
+                    const Divider(height: 1, indent: 64),
+
+                    // Log Out
                     ListTile(
                       shape: const RoundedRectangleBorder(
                         borderRadius: BorderRadius.only(
@@ -281,36 +346,106 @@ class SettingsScreen extends ConsumerWidget {
 
               const SizedBox(height: 24),
 
-              // 4. About Application Section
-              _buildSectionHeader(isUrdu ? 'ایپ کی معلومات' : 'About Application', isDark),
+              // 4. Legal & About Application Section
+              _buildSectionHeader(isUrdu ? 'معلومات اور قانونی پالیسی' : 'Legal & Information', isDark),
               const SizedBox(height: 8),
               Card(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                child: ListTile(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-                  leading: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.emerald.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
+                child: Column(
+                  children: [
+                    // Privacy Policy (Google Play Store compliance)
+                    ListTile(
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(18),
+                          topRight: Radius.circular(18),
+                        ),
+                      ),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.emerald.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.privacy_tip_outlined, color: AppColors.emerald, size: 20),
+                      ),
+                      title: Text(
+                        isUrdu ? 'پرائیویسی پالیسی' : 'Privacy Policy',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                      ),
+                      subtitle: Text(
+                        isUrdu ? 'ڈیٹا کے تحفظ اور استعمال سے متعلق پالیسی' : 'Data protection and usage terms',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.open_in_new, size: 16, color: AppColors.emerald),
+                      onTap: () => UrlHelper.openUrl(context, AppConfig.privacyPolicyUrl),
                     ),
-                    child: const Icon(Icons.info_outline, color: AppColors.emerald, size: 20),
-                  ),
-                  title: Text(
-                    isUrdu ? 'خاندانی شجرہ اور ایپ کی معلومات' : 'About Laghari Family',
-                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
-                  ),
-                  subtitle: Text(
-                    isUrdu
-                        ? 'شجرہ کا تعارف، تیار کنندہ اور خصوصی شکریہ'
-                        : 'Family tree details, developer info, and special thanks',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                    const Divider(height: 1, indent: 64),
+
+                    // Android-Only: Official Website
+                    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+                      ListTile(
+                        leading: Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppColors.gold.withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.language, color: AppColors.gold, size: 20),
+                        ),
+                        title: Text(
+                          isUrdu ? 'سرکاری ویب سائٹ' : 'Official Website',
+                          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                        ),
+                        subtitle: Text(
+                          'https://laghari-family.web.app/',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                          ),
+                        ),
+                        trailing: const Icon(Icons.open_in_new, size: 16, color: AppColors.gold),
+                        onTap: () => UrlHelper.openUrl(context, AppConfig.officialWebsite),
+                      ),
+                      const Divider(height: 1, indent: 64),
+                    ],
+
+                    // About Laghari Family Screen
+                    ListTile(
+                      shape: const RoundedRectangleBorder(
+                        borderRadius: BorderRadius.only(
+                          bottomLeft: Radius.circular(18),
+                          bottomRight: Radius.circular(18),
+                        ),
+                      ),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.emerald.withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.info_outline, color: AppColors.emerald, size: 20),
+                      ),
+                      title: Text(
+                        isUrdu ? 'خاندانی شجرہ اور ایپ کی معلومات' : 'About Laghari Family',
+                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                      ),
+                      subtitle: Text(
+                        isUrdu
+                            ? 'شجرہ کا تعارف، تیار کنندہ اور خصوصی شکریہ'
+                            : 'Family tree details, developer info, and special thanks',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                        ),
+                      ),
+                      trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+                      onTap: () => context.push('/about'),
                     ),
-                  ),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-                  onTap: () => context.push('/about'),
+                  ],
                 ),
               ),
 

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -80,19 +82,7 @@ class _AdminUserManagementScreenState
                   ),
                   child: Row(
                     children: [
-                      CircleAvatar(
-                        radius: 22,
-                        backgroundColor: user.isSuperAdmin
-                            ? AppColors.gold
-                            : (user.isAdmin ? AppColors.emerald : AppColors.lightBorder),
-                        child: Icon(
-                          user.isSuperAdmin
-                              ? Icons.admin_panel_settings
-                              : (user.isAdmin ? Icons.security : Icons.person),
-                          color: Colors.white,
-                          size: 22,
-                        ),
-                      ),
+                      _buildUserAvatar(user, size: 48),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(
@@ -129,7 +119,13 @@ class _AdminUserManagementScreenState
                       children: [
                         // Section 1: Personal Information
                         _buildSectionHeader('Personal Information', Icons.badge_outlined, isDark),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _buildUserAvatar(user, size: 84),
+                          ),
+                        ),
                         _buildDetailCard(
                           isDark,
                           children: [
@@ -503,6 +499,85 @@ class _AdminUserManagementScreenState
     );
   }
 
+  Widget _buildUserAvatar(UserModel user, {double size = 44}) {
+    final isFemale = user.gender.toLowerCase() == 'female';
+    final defaultAsset = isFemale
+        ? 'assets/images/female_avatar.jpg'
+        : 'assets/images/male_avatar.jpg';
+    final url = user.profileImageUrl.trim();
+
+    Widget imageWidget;
+    if (url.isEmpty) {
+      imageWidget = Image.asset(
+        defaultAsset,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+      );
+    } else if (url.startsWith('data:image')) {
+      try {
+        final comma = url.indexOf(',');
+        final b64 = comma != -1 ? url.substring(comma + 1) : url;
+        imageWidget = Image.memory(
+          base64Decode(b64),
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) =>
+              Image.asset(defaultAsset, fit: BoxFit.cover),
+        );
+      } catch (_) {
+        imageWidget = Image.asset(defaultAsset, fit: BoxFit.cover);
+      }
+    } else {
+      imageWidget = CachedNetworkImage(
+        imageUrl: url,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        placeholder: (context, _) => Container(
+          width: size,
+          height: size,
+          color: AppColors.darkCard,
+          child: const Center(
+            child: SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.emerald),
+            ),
+          ),
+        ),
+        errorWidget: (context, url, error) =>
+            Image.asset(defaultAsset, fit: BoxFit.cover),
+      );
+    }
+
+    final borderColor = user.isSuperAdmin
+        ? AppColors.gold
+        : (user.isAdmin ? AppColors.emerald : Colors.transparent);
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(
+          color: borderColor,
+          width: user.isAdmin ? 2.0 : 1.0,
+        ),
+        boxShadow: user.isSuperAdmin
+            ? [
+                BoxShadow(
+                  color: AppColors.gold.withValues(alpha: 0.35),
+                  blurRadius: 6,
+                )
+              ]
+            : null,
+      ),
+      child: ClipOval(child: imageWidget),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
@@ -583,19 +658,7 @@ class _AdminUserManagementScreenState
                               ),
                               child: ListTile(
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                                leading: CircleAvatar(
-                                  radius: 20,
-                                  backgroundColor: user.isSuperAdmin
-                                      ? AppColors.gold
-                                      : (user.isAdmin ? AppColors.emerald : (isDark ? AppColors.darkCard : AppColors.lightBorder)),
-                                  child: Icon(
-                                    user.isSuperAdmin
-                                        ? Icons.admin_panel_settings
-                                        : (user.isAdmin ? Icons.security : Icons.person),
-                                    color: user.isAdmin ? Colors.black87 : (isDark ? Colors.white : Colors.black87),
-                                    size: 20,
-                                  ),
-                                ),
+                                leading: _buildUserAvatar(user, size: 44),
                                 title: Text(
                                   user.name,
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),

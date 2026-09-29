@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laghari_family/core/config/app_config.dart';
+import 'package:laghari_family/core/services/crashlytics_service.dart';
 import 'package:laghari_family/features/admin/models/audit_log_model.dart';
 import 'package:laghari_family/features/admin/repositories/audit_log_repository.dart';
 import 'package:laghari_family/features/family_tree/models/family_member.dart';
@@ -27,70 +28,7 @@ class EditRequestRepository {
     this._familyRepo,
     this._notificationRepo,
     this._auditLogRepo,
-  ) {
-    _initDemoRequests();
-  }
-
-  void _initDemoRequests() {
-    _inMemoryRequests.addAll([
-      EditRequest(
-        requestId: 'req_demo_001',
-        type: EditRequestType.editMember,
-        memberId: 'ghulam_hussain_khan_w',
-        targetMemberName: 'Ghulam Hussain Khan',
-        requestedBy: 'user_001',
-        requestedByName: 'Bilal Tariq Laghari',
-        selectedAdminId: 'superadmin_uid',
-        selectedAdminName: 'Arsalan Umar (Super Admin)',
-        status: RequestStatus.pending,
-        changes: {
-          'notes': 'Added historical note: Elder of the Derajat branch with ancestral records.',
-          'confidence': 'high',
-        },
-        oldData: {
-          'notes': '',
-          'confidence': 'low',
-        },
-        newData: {
-          'notes': 'Added historical note: Elder of the Derajat branch with ancestral records.',
-          'confidence': 'high',
-        },
-        reason: 'Adding verified historical citation from family manuscripts.',
-        createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-      ),
-      EditRequest(
-        requestId: 'req_demo_002',
-        type: EditRequestType.addChild,
-        memberId: 'arsalan_umar_laghari',
-        targetMemberName: 'Arsalan Umar Laghari',
-        requestedBy: 'user_001',
-        requestedByName: 'Muhammad Ali',
-        selectedAdminId: 'superadmin_uid',
-        selectedAdminName: 'Arsalan Umar (Super Admin)',
-        status: RequestStatus.pending,
-        changes: {
-          'name_en': 'Ibrahim Arsalan Laghari',
-          'name_ur': 'ابراہیم ارسلان لغاری',
-          'father_id': 'arsalan_umar_laghari',
-          'gender': 'male',
-          'alive_status': 'alive',
-          'generation': 59,
-          'birth_date': '2025-01-15',
-          'notes': 'Newborn family member.',
-        },
-        oldData: {},
-        newData: {
-          'name_en': 'Ibrahim Arsalan Laghari',
-          'name_ur': 'ابراہیم ارسلان لغاری',
-          'father_id': 'arsalan_umar_laghari',
-          'gender': 'male',
-          'alive_status': 'alive',
-        },
-        reason: 'Registering newborn child to the branch.',
-        createdAt: DateTime.now().subtract(const Duration(hours: 1)),
-      ),
-    ]);
-  }
+  );
 
   bool get _hasLiveFirestore => _firestore != null;
 
@@ -105,6 +43,8 @@ class EditRequestRepository {
 
     _inMemoryRequests.add(reqWithId);
     _requestsStreamController.add(List.from(_inMemoryRequests));
+
+    CrashlyticsService.instance.log('Edit request submitted: type=${reqWithId.type.name}');
 
     if (_hasLiveFirestore) {
       await _collection.doc(reqWithId.requestId).set(reqWithId.toJson());
@@ -243,6 +183,8 @@ class EditRequestRepository {
 
     if (req == null) throw Exception('Request not found: $requestId');
 
+    CrashlyticsService.instance.log('Admin approval executed: requestId=$requestId');
+
     String targetMemberName = req.targetMemberName ?? '';
 
     // Apply the change to Family Member
@@ -368,6 +310,8 @@ class EditRequestRepository {
     }
 
     if (req == null) throw Exception('Request not found: $requestId');
+
+    CrashlyticsService.instance.log('Admin rejected request: id=$requestId');
 
     final updatedReq = req.copyWith(
       status: RequestStatus.rejected,

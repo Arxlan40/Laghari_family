@@ -223,7 +223,23 @@ class MemberPreviewSheet extends ConsumerWidget {
             runSpacing: 8,
             alignment: WrapAlignment.center,
             children: [
-              // Center in tree
+              // Dedicated Descendant Tree
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  context.push('/member/${member.id}/tree');
+                },
+                icon: const Icon(Icons.account_tree, size: 18, color: Colors.black),
+                label: Text(
+                  isUrdu ? 'ذاتی شجرہ دیکھیں' : 'See Family Tree',
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.gold,
+                ),
+              ),
+
+              // Center in whole tree
               ElevatedButton.icon(
                 onPressed: () {
                   ref.read(treeFocusTargetProvider.notifier).state = member.id;
@@ -232,11 +248,11 @@ class MemberPreviewSheet extends ConsumerWidget {
                   onCenterInTree?.call();
                   context.go('/family-tree?focusMemberId=${member.id}');
                 },
-                icon: const Icon(Icons.account_tree, size: 18),
-                label: Text(loc.translate('view_family_tree')),
+                icon: const Icon(Icons.explore_outlined, size: 18),
+                label: Text(loc.translate('locate_in_full_tree')),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.emerald,
-                  foregroundColor: Colors.black,
+                  foregroundColor: Colors.white,
                 ),
               ),
 

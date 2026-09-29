@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/presentation/widgets/update_dialog.dart';
 import '../../../../core/services/app_version_service.dart';
+import '../../../../core/utils/url_helper.dart';
 
 class AboutScreen extends ConsumerStatefulWidget {
   const AboutScreen({super.key});
@@ -356,6 +358,96 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
                                 child: Text(
                                   AppConfig.developerWebsite,
                                   style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.emerald,
+                                    decoration: TextDecoration.underline,
+                                    decorationColor: AppColors.emerald,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(Icons.open_in_new, size: 18, color: AppColors.emerald),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Android-Only: Official Website
+                      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) ...[
+                        const SizedBox(height: 16),
+                        Text(
+                          isUrdu ? 'سرکاری ویب سائٹ (اینڈرائیڈ):' : 'Official Website:',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.gold,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () => UrlHelper.openUrl(context, AppConfig.officialWebsite),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.gold.withValues(alpha: isDark ? 0.12 : 0.08),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(color: AppColors.gold.withValues(alpha: 0.35)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.public, color: AppColors.gold, size: 22),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Text(
+                                    AppConfig.officialWebsite,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppColors.gold,
+                                      decoration: TextDecoration.underline,
+                                      decorationColor: AppColors.gold,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(Icons.open_in_new, size: 18, color: AppColors.gold),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+
+                      // Privacy Policy
+                      const SizedBox(height: 16),
+                      Text(
+                        isUrdu ? 'پرائیویسی پالیسی:' : 'Privacy Policy:',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.emerald,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(14),
+                        onTap: () => UrlHelper.openUrl(context, AppConfig.privacyPolicyUrl),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: AppColors.emerald.withValues(alpha: isDark ? 0.12 : 0.08),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: AppColors.emerald.withValues(alpha: 0.35)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.privacy_tip_outlined, color: AppColors.emerald, size: 22),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  isUrdu ? 'پرائیویسی پالیسی کا جائزہ لیں' : 'View Privacy Policy',
+                                  style: const TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w600,
                                     color: AppColors.emerald,

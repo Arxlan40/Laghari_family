@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laghari_family/core/config/app_config.dart';
+import 'package:laghari_family/core/services/crashlytics_service.dart';
 import 'package:laghari_family/features/admin/models/audit_log_model.dart';
 import 'package:laghari_family/features/admin/repositories/audit_log_repository.dart';
 import 'package:laghari_family/features/auth/providers/auth_provider.dart';
@@ -17,42 +18,7 @@ class NotificationRepository {
   final StreamController<List<NotificationModel>> _notifStream =
       StreamController<List<NotificationModel>>.broadcast();
 
-  NotificationRepository([this._firestore, this._auditLogRepo]) {
-    _initDemoNotifications();
-  }
-
-  void _initDemoNotifications() {
-    _inMemoryNotifications.addAll([
-      NotificationModel(
-        notificationId: 'notif_demo_01',
-        userId: 'all_admins',
-        title: 'New Edit Request',
-        body: 'Bilal Tariq Laghari suggested an edit to Ghulam Hussain Khan.',
-        type: 'new_request',
-        isRead: false,
-        createdAt: DateTime.now().subtract(const Duration(minutes: 45)),
-        metadata: {'request_id': 'req_demo_001'},
-      ),
-      NotificationModel(
-        notificationId: 'notif_demo_02',
-        userId: 'all_users',
-        title: 'Welcome to Laghari Family Tree',
-        body: 'Explore historical branches, search elders, and contribute family updates.',
-        type: 'broadcast',
-        isRead: false,
-        createdAt: DateTime.now().subtract(const Duration(hours: 2)),
-      ),
-      NotificationModel(
-        notificationId: 'notif_demo_03',
-        userId: 'superadmin_uid',
-        title: 'System Initialized',
-        body: 'Laghari Family genealogy database successfully loaded.',
-        type: 'system',
-        isRead: true,
-        createdAt: DateTime.now().subtract(const Duration(days: 1)),
-      ),
-    ]);
-  }
+  NotificationRepository([this._firestore, this._auditLogRepo]);
 
   bool get _hasLiveFirestore => _firestore != null;
 
@@ -175,6 +141,10 @@ class NotificationRepository {
               .map((d) => NotificationModel.fromJson(d.data(), documentId: d.id))
               .toList();
           list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+          if (isInitialSnapshot) {
+            CrashlyticsService.instance.log('User notifications loaded: count=${list.length}');
+          }
 
           if (!isInitialSnapshot) {
             for (final change in snap.docChanges) {

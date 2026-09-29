@@ -121,8 +121,7 @@ class FamilyRepository {
     try {
       if (_inMemoryStore.isEmpty) return;
       final membersList = _inMemoryStore.values.map((m) => m.toJson()).toList();
-      const encoder = JsonEncoder.withIndent('  ');
-      final jsonStr = encoder.convert(membersList);
+      final jsonStr = jsonEncode(membersList);
 
       if (!kIsWeb) {
         final dir = await getApplicationDocumentsDirectory();

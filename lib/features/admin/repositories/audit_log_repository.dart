@@ -12,49 +12,7 @@ class AuditLogRepository {
   final StreamController<List<AuditLogModel>> _logsStreamController =
       StreamController<List<AuditLogModel>>.broadcast();
 
-  AuditLogRepository([this._firestore]) {
-    _initDemoLogs();
-  }
-
-  void _initDemoLogs() {
-    _inMemoryLogs.addAll([
-      AuditLogModel(
-        logId: 'log_seed_001',
-        action: 'approved_edit',
-        performedBy: 'superadmin_uid',
-        performedByName: 'Arsalan Umar Laghari',
-        performedByRole: 'super_admin',
-        targetMemberId: 'jaffer_khan_laghari',
-        targetMemberName: 'Dr. Jaffer Khan Laghari',
-        requestedBy: 'user_001',
-        requestedByName: 'Muhammad Ali',
-        oldData: {
-          'profession': 'Teacher',
-        },
-        newData: {
-          'profession': 'Doctor',
-        },
-        timestamp: DateTime.now().subtract(const Duration(hours: 5)),
-      ),
-      AuditLogModel(
-        logId: 'log_seed_002',
-        action: 'direct_add_child',
-        performedBy: 'admin_001',
-        performedByName: 'Tariq Laghari',
-        performedByRole: 'admin',
-        targetMemberId: 'ibrahim_laghari',
-        targetMemberName: 'Ibrahim Laghari',
-        oldData: {},
-        newData: {
-          'name_en': 'Ibrahim Laghari',
-          'name_ur': 'ابراہیم لغاری',
-          'father_id': 'malbo_khan',
-          'gender': 'male',
-        },
-        timestamp: DateTime.now().subtract(const Duration(days: 1)),
-      ),
-    ]);
-  }
+  AuditLogRepository([this._firestore]);
 
   bool get _hasLiveFirestore => _firestore != null;
 

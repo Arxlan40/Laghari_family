@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../../core/services/crashlytics_service.dart';
 import '../../../auth/providers/auth_provider.dart';
 import '../../models/family_member.dart';
 import '../../providers/family_tree_providers.dart';
@@ -12,11 +13,15 @@ import 'member_node_card.dart';
 class TreeCanvasWidget extends ConsumerStatefulWidget {
   final String? initialFocusMemberId;
   final bool isDirectAdmin;
+  final Map<String, FamilyMember>? customMembersMap;
+  final String? customTitle;
 
   const TreeCanvasWidget({
     super.key,
     this.initialFocusMemberId,
     this.isDirectAdmin = false,
+    this.customMembersMap,
+    this.customTitle,
   });
 
   @override
@@ -32,6 +37,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
   final GlobalKey _viewportKey = GlobalKey();
   final GlobalKey _treeContentKey = GlobalKey();
   final Map<String, GlobalKey> _cardKeys = {};
+  final Set<String> _usedKeysInCurrentBuild = {};
 
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
@@ -79,8 +85,12 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
     }
   }
 
+  Map<String, FamilyMember> _getMembersMap() {
+    return widget.customMembersMap ?? ref.read(familyMembersMapProvider);
+  }
+
   void _triggerFocusMember(String memberId) {
-    final membersMap = ref.read(familyMembersMapProvider);
+    final membersMap = _getMembersMap();
     final target = membersMap[memberId];
     if (target != null) {
       _pendingFocusMemberId = null;
@@ -112,7 +122,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
       return;
     }
 
-    final members = ref.read(familyMembersMapProvider).values;
+    final members = _getMembersMap().values;
     final results = members.where((m) {
       return m.nameEn.toLowerCase().contains(query) ||
           m.nameUr.toLowerCase().contains(query) ||
@@ -139,7 +149,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
     notifier.selectMember(member.id);
 
     // Expand all ancestors up to root
-    final membersMap = ref.read(familyMembersMapProvider);
+    final membersMap = _getMembersMap();
     final ancestors = <String>{};
     String? curFather = member.fatherId;
     while (curFather != null && membersMap.containsKey(curFather)) {
@@ -274,6 +284,8 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
 
     if ((actualFactor - 1.0).abs() < 0.0001) return;
 
+    CrashlyticsService.instance.log('Family Tree Zoom: scale=${newScale.toStringAsFixed(2)}');
+
     final translationToOrigin =
         Matrix4.translationValues(-focalPoint.dx, -focalPoint.dy, 0.0);
     final scaleMatrix =
@@ -351,7 +363,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
 
   void _applyGenerationFilter(int depth) {
     setState(() => _generationDepth = depth);
-    final members = ref.read(familyMembersMapProvider).values;
+    final members = _getMembersMap().values;
     final toExpand = <String>{};
 
     // Always expand all nodes with children across all generations
@@ -369,10 +381,12 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
 
   @override
   Widget build(BuildContext context) {
+    _usedKeysInCurrentBuild.clear();
     final loc = AppLocalizations.of(context);
     final isUrdu = loc.isUrdu;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final membersMap = ref.watch(familyMembersMapProvider);
+    final Map<String, FamilyMember> membersMap =
+        widget.customMembersMap ?? ref.watch(familyMembersMapProvider);
     final treeState = ref.watch(familyTreeStateProvider);
 
     // Listen to global focus target provider
@@ -460,7 +474,8 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
                           const Icon(Icons.account_tree, color: AppColors.gold, size: 18),
                           const SizedBox(width: 8),
                           Text(
-                            isUrdu ? 'خاندانی شجرہ نسب (لغاری خاندان)' : 'Laghari Clan Family Tree',
+                            widget.customTitle ??
+                                (isUrdu ? 'خاندانی شجرہ نسب (لغاری خاندان)' : 'Laghari Clan Family Tree'),
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.bold,
@@ -696,7 +711,8 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
         .whereType<FamilyMember>()
         .toList();
 
-    _cardKeys[member.id] ??= GlobalKey();
+    final isFirstInstance = _usedKeysInCurrentBuild.add(member.id);
+    final cardKey = isFirstInstance ? (_cardKeys[member.id] ??= GlobalKey()) : null;
 
     final lineColor = isDark
         ? const Color(0xFF90A4AE).withValues(alpha: 0.7)
@@ -711,7 +727,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
       children: [
         // Member Card
         KeyedSubtree(
-          key: _cardKeys[member.id],
+          key: cardKey,
           child: MemberNodeCard(
             member: member,
             isSelected: isSelected,

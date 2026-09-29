@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,7 +9,7 @@ import '../../../../core/services/app_version_service.dart';
 import '../../../../core/services/device_info_service.dart';
 import '../../providers/auth_provider.dart';
 
-final splashCheckDoneProvider = StateProvider<bool>((ref) => false);
+final splashCheckDoneProvider = StateProvider<bool>((ref) => kIsWeb);
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -29,6 +30,23 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _runStartupChecks() async {
+    // On Web: Load instantly without any version checks or artificial delays
+    if (kIsWeb) {
+      if (mounted) {
+        ref.read(splashCheckDoneProvider.notifier).state = true;
+        final currentUser = ref.read(currentUserProvider);
+        if (currentUser != null) {
+          if (currentUser.isAdmin) {
+            context.go('/admin/dashboard');
+          } else {
+            context.go('/family-tree');
+          }
+        } else {
+          context.go('/login');
+        }
+      }
+      return;
+    }
     // 1. Brief splash duration for smooth branding presentation
     await Future.delayed(const Duration(milliseconds: 1000));
     if (!mounted) return;

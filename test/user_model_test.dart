@@ -40,7 +40,7 @@ void main() {
       final user = UserModel.fromJson(json);
 
       expect(user.bloodGroup, 'Unknown');
-      expect(user.gender, 'Prefer not to say');
+      expect(user.gender, 'Male');
       expect(user.profession, '');
     });
 

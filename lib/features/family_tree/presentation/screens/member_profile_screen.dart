@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../../core/services/crashlytics_service.dart';
 import '../../../admin/models/audit_log_model.dart';
 import '../../../admin/repositories/audit_log_repository.dart';
 import '../../../auth/providers/auth_provider.dart';
@@ -44,16 +45,18 @@ class MemberProfileScreen extends ConsumerWidget {
         .whereType<FamilyMember>()
         .toList();
 
+    CrashlyticsService.instance.log('Family Member Profile opened: id=${member.id}');
+
     return Scaffold(
       appBar: AppBar(
         title: Text(member.localizedName(loc.locale.languageCode)),
         actions: [
           const NotificationBadgeIcon(),
-          // View in Family Tree action
+          // See Person's Descendant Family Tree action
           IconButton(
-            icon: const Icon(Icons.account_tree, color: AppColors.emerald),
-            tooltip: loc.translate('view_family_tree'),
-            onPressed: () => _navigateToTree(ref, context, member, membersMap),
+            icon: const Icon(Icons.account_tree, color: AppColors.gold),
+            tooltip: loc.translate('see_family_tree'),
+            onPressed: () => context.push('/member/${member.id}/tree'),
           ),
         ],
       ),
@@ -109,7 +112,7 @@ class MemberProfileScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 20),
 
-            // Prominent "View in Family Tree" Action Card
+            // Prominent "See Family Tree" Action Card (Dedicated Person Tree Screen)
             SizedBox(
               width: double.infinity,
               height: 52,
@@ -122,10 +125,23 @@ class MemberProfileScreen extends ConsumerWidget {
                 ),
                 icon: const Icon(Icons.account_tree, size: 22),
                 label: Text(
-                  loc.translate('view_in_tree'),
+                  loc.translate('see_family_tree'),
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
+                onPressed: () => context.push('/member/${member.id}/tree'),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Secondary option to locate in complete main family tree
+            Center(
+              child: TextButton.icon(
                 onPressed: () => _navigateToTree(ref, context, member, membersMap),
+                icon: const Icon(Icons.explore_outlined, size: 16, color: AppColors.gold),
+                label: Text(
+                  loc.translate('locate_in_full_tree'),
+                  style: const TextStyle(fontSize: 13, color: AppColors.gold),
+                ),
               ),
             ),
             const SizedBox(height: 14),

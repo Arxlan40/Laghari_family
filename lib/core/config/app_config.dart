@@ -23,6 +23,9 @@ class AppConfig {
 
   // Developer & Links
   static const String developerWebsite = 'https://arsalan-umar-ede98.web.app/';
+  static const String officialWebsite = 'https://laghari-family.web.app/';
+  static const String privacyPolicyUrl =
+      'https://www.termsfeed.com/live/3e2e1b33-50aa-4bb5-912a-a7c9f51a1e6c';
 
   // Supabase Storage
   static const String supabaseStorageBucket = 'family';

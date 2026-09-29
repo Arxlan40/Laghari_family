@@ -155,6 +155,13 @@ class AppLocalizations {
       'requester': 'Requester',
       'sent_notifications_history': 'Sent Notifications History',
       'new_child_info': 'New Child Information',
+      'see_family_tree': 'See Family Tree',
+      'locate_in_full_tree': 'Locate in Full Tree',
+      'official_website': 'Official Website',
+      'privacy_policy': 'Privacy Policy',
+      'change_password': 'Change Password',
+      'delete_account': 'Delete Account',
+      'no_children_added_yet': 'No children have been added for this member yet.',
     },
     'ur': {
       'app_name': 'لغاری فیملی',
@@ -288,6 +295,13 @@ class AppLocalizations {
       'requester': 'درخواست گزار',
       'sent_notifications_history': 'بھیجے گئے اعلانات کی تاریخ',
       'new_child_info': 'نئے بچے کی معلومات',
+      'see_family_tree': 'ذاتی شجرہ نسب دیکھیں',
+      'locate_in_full_tree': 'مکمل شجرے میں تلاش کریں',
+      'official_website': 'سرکاری ویب سائٹ',
+      'privacy_policy': 'پرائیویسی پالیسی',
+      'change_password': 'پاس ورڈ تبدیل کریں',
+      'delete_account': 'اکاؤنٹ مستقل حذف کریں',
+      'no_children_added_yet': 'اس رکن کے لیے ابھی کوئی اولاد شامل نہیں کی گئی ہے۔',
     },
   };
 

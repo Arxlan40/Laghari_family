@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,6 +21,7 @@ import '../../features/edit_requests/presentation/screens/submit_edit_request_sc
 import '../../features/family_tree/presentation/screens/family_members_screen.dart';
 import '../../features/family_tree/presentation/screens/family_tree_screen.dart';
 import '../../features/family_tree/presentation/screens/member_profile_screen.dart';
+import '../../features/family_tree/presentation/screens/person_family_tree_screen.dart';
 import '../../features/family_tree/presentation/screens/search_screen.dart';
 import '../../features/notifications/presentation/screens/notifications_screen.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
@@ -30,16 +32,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final splashCheckDone = ref.watch(splashCheckDoneProvider);
 
   return GoRouter(
-    initialLocation: '/splash',
+    initialLocation: kIsWeb ? '/family-tree' : '/splash',
     redirect: (BuildContext context, GoRouterState state) {
       final loc = state.matchedLocation;
 
-      // 1. While auth state is initializing or splash checks are running on splash, keep on Splash
-      if (loc == '/splash' && (authState.isLoading || !splashCheckDone)) {
-        return null;
-      }
-      if (authState.isLoading) {
-        return loc == '/splash' ? null : '/splash';
+      // 1. Auth & Splash initialization logic
+      if (kIsWeb) {
+        // On Web, bypass splash screen completely
+        if (loc == '/splash') {
+          final user = authState.valueOrNull;
+          if (user != null) {
+            return user.isAdmin ? '/admin/dashboard' : '/family-tree';
+          }
+          return '/login';
+        }
+        if (authState.isLoading) {
+          return null;
+        }
+      } else {
+        // On mobile, keep on splash until checks finish
+        if (loc == '/splash' && (authState.isLoading || !splashCheckDone)) {
+          return null;
+        }
+        if (authState.isLoading) {
+          return loc == '/splash' ? null : '/splash';
+        }
       }
 
       final user = authState.valueOrNull;
@@ -172,6 +189,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final id = state.pathParameters['id'] ?? '';
           return MemberProfileScreen(memberId: id);
+        },
+      ),
+      GoRoute(
+        path: '/member/:id/tree',
+        builder: (context, state) {
+          final id = state.pathParameters['id'] ?? '';
+          return PersonFamilyTreeScreen(memberId: id);
         },
       ),
       GoRoute(

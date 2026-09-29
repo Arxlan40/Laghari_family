@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:laghari_family/core/config/app_config.dart';
+import 'package:laghari_family/core/services/crashlytics_service.dart';
 import '../models/user_model.dart';
 
 class AuthRepository {
@@ -37,9 +38,6 @@ class AuthRepository {
           } catch (e) {
             debugPrint('Error getting user profile: $e');
           }
-        } else if (_currentUser != null && _currentUser!.role.isSuperAdmin) {
-          // Keep active super admin session alive if Firebase is throttled
-          return;
         } else {
           _currentUser = null;
         }
@@ -48,7 +46,10 @@ class AuthRepository {
     }
   }
 
-  Stream<UserModel?> watchCurrentUser() => _userStreamController.stream;
+  Stream<UserModel?> watchCurrentUser() async* {
+    yield _currentUser;
+    yield* _userStreamController.stream;
+  }
 
   Future<UserModel?> getCurrentUser() async {
     if (_currentUser != null) return _currentUser;
@@ -133,6 +134,9 @@ class AuthRepository {
             .set(userModel.toJson());
       }
 
+      CrashlyticsService.instance.log('User registered: role=${userModel.role.value}');
+      CrashlyticsService.instance.setUserContext(uid: userModel.uid, role: userModel.role.value);
+
       _userStreamController.add(userModel);
       return userModel;
     } else {
@@ -183,144 +187,71 @@ class AuthRepository {
     bool isAdminLogin = false,
   }) async {
     final cleanEmail = email.trim().toLowerCase();
-    final isSuperAdminCreds = cleanEmail == 'arxlanumer50@gmail.com' && password == '12345678';
-    final isSuperAdminEmail = cleanEmail == 'arxlanumer50@gmail.com' ||
-        cleanEmail == 'superadmin@laghari.family' ||
-        cleanEmail.contains('admin');
-
     final auth = _auth;
     final firestore = _firestore;
 
-    // Guaranteed Super Admin Login:
-    // Even if Firebase Auth blocks requests with [too-many-requests] or network throttle,
-    // Super Admin credentials must immediately authenticate and grant full access.
-    if (isSuperAdminCreds) {
+    if (auth == null) {
+      throw Exception('Authentication service is unavailable. Please check your network connection.');
+    }
+
+    // Authenticate with Firebase Authentication.
+    // If the password or email is incorrect, this throws FirebaseAuthException and will NOT bypass.
+    final credential = await auth.signInWithEmailAndPassword(
+      email: cleanEmail,
+      password: password,
+    );
+
+    if (credential.user == null) {
+      throw Exception('Authentication failed. No user record returned.');
+    }
+
+    final uid = credential.user!.uid;
+    var profile = await getUserProfile(uid);
+
+    final isSuperAdminEmail = cleanEmail == 'arxlanumer50@gmail.com' ||
+        cleanEmail == 'superadmin@laghari.family';
+
+    if (profile == null) {
       final now = DateTime.now();
-      UserModel superAdmin = UserModel(
-        uid: 'superadmin_arxlanumer50',
-        name: 'Arsalan Umar (Super Admin)',
-        fatherName: 'Umar Farooq Laghari',
+      profile = UserModel(
+        uid: uid,
+        name: isSuperAdminEmail
+            ? 'Arsalan Umar'
+            : (credential.user!.displayName ?? 'Laghari Family Member'),
+        fatherName: isSuperAdminEmail ? 'Umar Farooq Laghari' : '',
         email: cleanEmail,
-        address: 'Rahim Yar Khan / Lahore',
+        address: '',
         profileImageUrl: '',
-        role: UserRole.superAdmin,
+        role: isSuperAdminEmail ? UserRole.superAdmin : UserRole.user,
         status: AccountStatus.active,
         createdAt: now,
         updatedAt: now,
       );
-
-      if (auth != null) {
-        try {
-          final cred = await auth.signInWithEmailAndPassword(
-            email: cleanEmail,
-            password: password,
-          );
-          if (cred.user != null) {
-            superAdmin = superAdmin.copyWith(uid: cred.user!.uid);
-          }
-        } catch (_) {
-          try {
-            final cred = await auth.createUserWithEmailAndPassword(
-              email: cleanEmail,
-              password: password,
-            );
-            if (cred.user != null) {
-              superAdmin = superAdmin.copyWith(uid: cred.user!.uid);
-            }
-          } catch (_) {
-            // Throttled by Firebase - continue with superAdmin session
-          }
-        }
-      }
-
       if (firestore != null) {
-        try {
-          await firestore
-              .collection(AppConfig.usersCollection)
-              .doc(superAdmin.uid)
-              .set(superAdmin.toJson(), SetOptions(merge: true));
-        } catch (_) {}
-      }
-
-      _currentUser = superAdmin;
-      _userStreamController.add(superAdmin);
-      return superAdmin;
-    }
-
-    if (auth != null) {
-      UserCredential? credential;
-      try {
-        credential = await auth.signInWithEmailAndPassword(
-          email: cleanEmail,
-          password: password,
-        );
-      } catch (e) {
-        rethrow;
-      }
-
-      if (credential.user != null) {
-        final uid = credential.user!.uid;
-        var profile = await getUserProfile(uid);
-
-        if (profile == null) {
-          final now = DateTime.now();
-          profile = UserModel(
-            uid: uid,
-            name: isSuperAdminEmail ? 'Arsalan Umar' : 'Laghari Family Member',
-            fatherName: 'Umar Farooq Laghari',
-            email: cleanEmail,
-            address: 'Rahim Yar Khan / Lahore',
-            profileImageUrl: '',
-            role: isSuperAdminEmail ? UserRole.superAdmin : UserRole.user,
-            status: AccountStatus.active,
-            createdAt: now,
-            updatedAt: now,
-          );
-          if (firestore != null) {
-            await firestore
-                .collection(AppConfig.usersCollection)
-                .doc(uid)
-                .set(profile.toJson(), SetOptions(merge: true));
-          }
-        }
-
-        if (profile.isBlocked) {
-          await auth.signOut();
-          throw Exception('Your account has been suspended. Please contact administrator.');
-        }
-
-        if (isAdminLogin && !profile.isAdmin) {
-          await auth.signOut();
-          throw Exception('Access denied. Administrator privileges required.');
-        }
-
-        _currentUser = profile;
-        _userStreamController.add(profile);
-        return profile;
+        await firestore
+            .collection(AppConfig.usersCollection)
+            .doc(uid)
+            .set(profile.toJson(), SetOptions(merge: true));
       }
     }
 
-    // High-reliability fallback login
-    if (isAdminLogin && !isSuperAdminEmail) {
+    if (profile.isBlocked) {
+      await auth.signOut();
+      throw Exception('Your account has been suspended. Please contact administrator.');
+    }
+
+    if (isAdminLogin && !profile.isAdmin) {
+      await auth.signOut();
       throw Exception('Access denied. Administrator privileges required.');
     }
 
-    final role = isSuperAdminEmail ? UserRole.superAdmin : UserRole.user;
-    final user = UserModel(
-      uid: isSuperAdminEmail ? 'superadmin_arsalan' : 'user_${cleanEmail.hashCode}',
-      name: isSuperAdminEmail ? 'Arsalan Umar (Super Admin)' : 'Laghari Family Member',
-      fatherName: 'Umar Farooq Laghari',
-      email: cleanEmail,
-      address: 'Rahim Yar Khan / Lahore',
-      profileImageUrl: '',
-      role: role,
-      status: AccountStatus.active,
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-    _currentUser = user;
-    _userStreamController.add(user);
-    return user;
+    _currentUser = profile;
+    _userStreamController.add(profile);
+
+    CrashlyticsService.instance.log('User signed in: role=${profile.role.value}');
+    CrashlyticsService.instance.setUserContext(uid: profile.uid, role: profile.role.value);
+
+    return profile;
   }
 
   /// Sends password reset email
@@ -372,68 +303,21 @@ class AuthRepository {
       try {
         final snap = await firestore.collection(AppConfig.usersCollection).get();
         if (snap.docs.isNotEmpty) {
-          return snap.docs.map((d) => UserModel.fromJson(d.data(), documentId: d.id)).toList();
+          return snap.docs
+              .map((d) => UserModel.fromJson(d.data(), documentId: d.id))
+              .toList();
         }
       } catch (e) {
-        debugPrint('Firestore getAllUsers fallback: $e');
+        debugPrint('Firestore getAllUsers error: $e');
       }
     }
-    return [
-      UserModel(
-        uid: 'superadmin_uid',
-        name: 'Arsalan Umar (Super Admin)',
-        fatherName: 'Umar Farooq Laghari',
-        email: 'arxlanumer50@gmail.com',
-        address: 'Lahore, Pakistan',
-        role: UserRole.superAdmin,
-        status: AccountStatus.active,
-        createdAt: DateTime.now().subtract(const Duration(days: 30)),
-        updatedAt: DateTime.now(),
-      ),
-      UserModel(
-        uid: 'user_001',
-        name: 'Bilal Tariq Laghari',
-        fatherName: 'Tariq Manzoor Laghari',
-        email: 'bilal@laghari.family',
-        address: 'Lahore, Pakistan',
-        role: UserRole.user,
-        status: AccountStatus.active,
-        createdAt: DateTime.now().subtract(const Duration(days: 10)),
-        updatedAt: DateTime.now(),
-      ),
-      UserModel(
-        uid: 'user_002',
-        name: 'Fatima Bibi',
-        fatherName: 'Waliyam Khan',
-        email: 'fatima@laghari.family',
-        address: 'Dera Ghazi Khan',
-        role: UserRole.user,
-        status: AccountStatus.active,
-        createdAt: DateTime.now().subtract(const Duration(days: 5)),
-        updatedAt: DateTime.now(),
-      ),
-    ];
+    return [];
   }
 
   /// Returns all users who are Admins or Super Admins
   Future<List<UserModel>> getAdminUsers() async {
     final all = await getAllUsers();
-    final admins = all.where((u) => u.isAdmin && !u.status.isBlocked).toList();
-    if (admins.isEmpty) {
-      // Ensure at least default Super Admin is returned
-      return [
-        UserModel(
-          uid: 'superadmin_uid',
-          name: 'Arsalan Umar (Super Admin)',
-          fatherName: 'Umar Farooq Laghari',
-          email: 'arxlanumer50@gmail.com',
-          address: 'Lahore, Pakistan',
-          role: UserRole.superAdmin,
-          status: AccountStatus.active,
-        ),
-      ];
-    }
-    return admins;
+    return all.where((u) => u.isAdmin && !u.status.isBlocked).toList();
   }
 
   /// Updates FCM registration token on user profile in Firestore
@@ -466,10 +350,139 @@ class AuthRepository {
     }
   }
 
+  /// Updates user password with Firebase Authentication including re-authentication
+  Future<void> changePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final auth = _auth;
+    if (auth == null || auth.currentUser == null) {
+      throw Exception('User is not currently authenticated.');
+    }
+
+    final fbUser = auth.currentUser!;
+    final email = fbUser.email;
+    if (email == null || email.isEmpty) {
+      throw Exception('User email not found for authentication.');
+    }
+
+    try {
+      // 1. Re-authenticate user with current password
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: currentPassword,
+      );
+      await fbUser.reauthenticateWithCredential(credential);
+
+      // 2. Update password in Firebase Auth
+      await fbUser.updatePassword(newPassword);
+      debugPrint('Password updated successfully in Firebase Auth for uid=${fbUser.uid}');
+    } on FirebaseAuthException catch (e) {
+      debugPrint('FirebaseAuthException during changePassword: ${e.code} - ${e.message}');
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          throw Exception('Current password is incorrect. Please check and try again.');
+        case 'weak-password':
+          throw Exception('The new password is too weak. Please use at least 6 characters.');
+        case 'requires-recent-login':
+          throw Exception('For security, please log out and log back in before changing your password.');
+        case 'too-many-requests':
+          throw Exception('Too many attempts. Please wait a few moments and try again.');
+        default:
+          throw Exception(e.message ?? 'Failed to change password. Please try again.');
+      }
+    } catch (e) {
+      debugPrint('Error changing password: $e');
+      rethrow;
+    }
+  }
+
+  /// Performs Google Play compliant account deletion:
+  /// 1. Re-authenticates the user with password
+  /// 2. Deletes user-specific Firestore data (users/{uid}, notifications, device/location info)
+  /// 3. Preserves historical family-tree records in family_members
+  /// 4. Deletes the Firebase Authentication user account
+  /// 5. Cleans up session and signs out
+  Future<void> deleteUserAccount({required String password}) async {
+    final auth = _auth;
+    final firestore = _firestore;
+    if (auth == null || auth.currentUser == null) {
+      throw Exception('User is not currently authenticated.');
+    }
+
+    final fbUser = auth.currentUser!;
+    final uid = fbUser.uid;
+    final email = fbUser.email;
+
+    if (email == null || email.isEmpty) {
+      throw Exception('User email not found for authentication.');
+    }
+
+    try {
+      // 1. Re-authenticate user with password
+      final credential = EmailAuthProvider.credential(
+        email: email,
+        password: password,
+      );
+      await fbUser.reauthenticateWithCredential(credential);
+
+      // 2. Clean up user notifications from Firestore
+      if (firestore != null) {
+        try {
+          final notifsSnap = await firestore
+              .collection('notifications')
+              .where('userId', isEqualTo: uid)
+              .get();
+          final batch = firestore.batch();
+          for (final doc in notifsSnap.docs) {
+            batch.delete(doc.reference);
+          }
+          await batch.commit();
+        } catch (e) {
+          debugPrint('Note: Error removing user notifications during account deletion: $e');
+        }
+
+        // 3. Remove user profile document from users collection (including device & location info)
+        try {
+          await firestore.collection(AppConfig.usersCollection).doc(uid).delete();
+          debugPrint('User profile deleted from Firestore: $uid');
+        } catch (e) {
+          debugPrint('Note: Error deleting user document: $e');
+        }
+      }
+
+      // 4. Delete the Firebase Authentication account
+      await fbUser.delete();
+      debugPrint('Firebase Authentication account deleted: $uid');
+
+      // 5. Sign out & clear local memory state
+      _currentUser = null;
+      _userStreamController.add(null);
+    } on FirebaseAuthException catch (e) {
+      debugPrint('FirebaseAuthException during deleteUserAccount: ${e.code} - ${e.message}');
+      switch (e.code) {
+        case 'wrong-password':
+        case 'invalid-credential':
+          throw Exception('Incorrect password. Please verify your password to proceed with account deletion.');
+        case 'requires-recent-login':
+          throw Exception('For security, please log out and log back in before deleting your account.');
+        default:
+          throw Exception(e.message ?? 'Failed to delete account. Please try again.');
+      }
+    } catch (e) {
+      debugPrint('Error deleting user account: $e');
+      rethrow;
+    }
+  }
+
   /// Signs out
   Future<void> signOut() async {
     _currentUser = null;
     _userStreamController.add(null);
+    CrashlyticsService.instance.log('User signed out');
+    CrashlyticsService.instance.setUserContext(uid: null, role: null);
+
     final auth = _auth;
     if (auth != null) {
       try {
@@ -478,3 +491,4 @@ class AuthRepository {
     }
   }
 }
+
