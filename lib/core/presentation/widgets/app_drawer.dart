@@ -207,6 +207,17 @@ class AppDrawer extends ConsumerWidget {
                   },
                 ),
                 _DrawerItem(
+                  icon: Icons.volunteer_activism_outlined,
+                  selectedIcon: Icons.volunteer_activism,
+                  title: loc.translate('hamdard_laghari'),
+                  isSelected: currentRoute.startsWith('/hamdard'),
+                  iconColor: AppColors.emerald,
+                  onTap: () {
+                    Navigator.pop(context);
+                    context.push('/hamdard');
+                  },
+                ),
+                _DrawerItem(
                   icon: Icons.person_outline,
                   selectedIcon: Icons.person,
                   title: loc.translate('profile'),

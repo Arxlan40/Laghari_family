@@ -165,6 +165,19 @@ class AdminDashboardScreen extends ConsumerWidget {
             onTap: () => context.push('/notifications'),
           ),
 
+          // 4. Hamdard Laghari Section (Accessible for Hamdard Admin / Super Admin)
+          if (currentUser?.canManageHamdard == true)
+            _buildActionCard(
+              context: context,
+              title: isUrdu ? 'ہمدرد لغاری فنڈ' : 'Hamdard Laghari Fund',
+              subtitle: isUrdu
+                  ? 'عطیات، اخراجات، رپورٹس اور ہمدرد افراد کا نظام'
+                  : 'Manage donations, expenditures, reports & donors registry',
+              icon: Icons.volunteer_activism,
+              iconColor: AppColors.emerald,
+              onTap: () => context.push('/hamdard'),
+            ),
+
           // ---------------------------------------------------------
           // Section: Super Admin Only Controls
           // ---------------------------------------------------------
@@ -236,6 +249,18 @@ class AdminDashboardScreen extends ConsumerWidget {
               icon: Icons.import_export,
               iconColor: AppColors.info,
               onTap: () => context.push('/admin/export-import'),
+            ),
+
+            // 5. Hamdard Admins & Controls (Super Admin Only)
+            _buildActionCard(
+              context: context,
+              title: isUrdu ? 'ہمدرد ایڈمنز و کنٹرول' : 'Hamdard Admins & Controls',
+              subtitle: isUrdu
+                  ? 'ہمدرد ایڈمنز کی تعیناتی، ابتدائی میزان اور آڈٹ ٹریل'
+                  : 'Assign Hamdard Admins, configure opening balance & audit trail',
+              icon: Icons.account_balance,
+              iconColor: AppColors.gold,
+              onTap: () => context.push('/hamdard/admins'),
             ),
           ],
         ],

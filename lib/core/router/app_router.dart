@@ -24,6 +24,16 @@ import '../../features/family_tree/presentation/screens/person_family_tree_scree
 import '../../features/family_tree/presentation/screens/search_screen.dart';
 import '../../features/notifications/presentation/screens/notifications_screen.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_add_edit_donation_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_add_edit_spending_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_admin_management_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_audit_log_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_dashboard_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_donations_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_donors_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_json_tools_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_reports_screen.dart';
+import '../../features/hamdard/presentation/screens/hamdard_spending_screen.dart';
 import '../presentation/widgets/main_navigation_shell.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
@@ -89,7 +99,23 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         }
       }
 
-      // 5. If user profile needs completion (skip for super admin)
+      // 5. Hamdard route protection
+      if (loc.startsWith('/hamdard')) {
+        final isHamdardSuperAdminRoute = loc == '/hamdard/admins' ||
+            loc == '/hamdard/audit-logs' ||
+            loc == '/hamdard/json-tools';
+        if (isHamdardSuperAdminRoute && !user.isSuperAdmin) {
+          return '/hamdard';
+        }
+
+        final isHamdardWriteRoute = loc == '/hamdard/add-donation' ||
+            loc == '/hamdard/add-spending';
+        if (isHamdardWriteRoute && !user.canManageHamdard) {
+          return '/hamdard';
+        }
+      }
+
+      // 6. If user profile needs completion (skip for super admin)
       if (!user.role.isSuperAdmin &&
           (user.fatherName.isEmpty || user.address.isEmpty) &&
           loc != '/complete-profile') {
@@ -259,6 +285,48 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/admin/audit-logs',
         builder: (context, state) => const AuditLogScreen(),
+      ),
+
+      // Hamdard Laghari Module Routes
+      GoRoute(
+        path: '/hamdard',
+        builder: (context, state) => const HamdardDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/donors',
+        builder: (context, state) => const HamdardDonorsScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/donations',
+        builder: (context, state) => const HamdardDonationsScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/spending',
+        builder: (context, state) => const HamdardSpendingScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/reports',
+        builder: (context, state) => const HamdardReportsScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/add-donation',
+        builder: (context, state) => const HamdardAddEditDonationScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/add-spending',
+        builder: (context, state) => const HamdardAddEditSpendingScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/admins',
+        builder: (context, state) => const HamdardAdminManagementScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/audit-logs',
+        builder: (context, state) => const HamdardAuditLogScreen(),
+      ),
+      GoRoute(
+        path: '/hamdard/json-tools',
+        builder: (context, state) => const HamdardJsonToolsScreen(),
       ),
     ],
   );
