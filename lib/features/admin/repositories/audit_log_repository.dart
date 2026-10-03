@@ -53,9 +53,7 @@ class AuditLogRepository {
 
   /// Streams audit logs for Super Admin inspection
   Stream<List<AuditLogModel>> watchAuditLogs() async* {
-    if (_inMemoryLogs.isNotEmpty) {
-      yield List.from(_inMemoryLogs);
-    }
+    yield List.from(_inMemoryLogs);
 
     if (_hasLiveFirestore) {
       try {
