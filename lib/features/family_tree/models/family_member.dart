@@ -50,6 +50,33 @@ enum AliveStatus {
 /// - NO mother_id or spouse_id.
 /// - [alive_status] is a tri-state value ('alive', 'deceased', 'unknown').
 class FamilyMember {
+  /// Standard blood group values recognized across the application
+  static const List<String> bloodGroupOptions = [
+    'Unknown',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+    'O+',
+    'O-',
+  ];
+
+  /// Filter options including 'All'
+  static const List<String> filterBloodGroupOptions = [
+    'All',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+    'O+',
+    'O-',
+    'Unknown',
+  ];
+
   final String id;
   final String nameEn;
   final String nameUr;
@@ -148,7 +175,7 @@ class FamilyMember {
     }
 
     return FamilyMember(
-      id: (json['id'] ?? '').toString().trim(),
+      id: (json['id'] ?? json['memberId'] ?? json['member_id'] ?? '').toString().trim(),
       nameEn: (json['name_en'] ?? json['nameEn'] ?? json['name'] ?? '').toString().trim(),
       nameUr: (json['name_ur'] ?? json['nameUr'] ?? '').toString().trim(),
       fatherId: (json['father_id'] != null && json['father_id'].toString().trim().isNotEmpty)
@@ -181,6 +208,7 @@ class FamilyMember {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'memberId': id,
       'name_en': nameEn,
       'name_ur': nameUr,
       'father_id': fatherId,

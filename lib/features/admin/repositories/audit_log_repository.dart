@@ -53,7 +53,9 @@ class AuditLogRepository {
 
   /// Streams audit logs for Super Admin inspection
   Stream<List<AuditLogModel>> watchAuditLogs() async* {
-    yield List.from(_inMemoryLogs);
+    if (_inMemoryLogs.isNotEmpty) {
+      yield List.from(_inMemoryLogs);
+    }
 
     if (_hasLiveFirestore) {
       try {
@@ -61,11 +63,17 @@ class AuditLogRepository {
           final list = snap.docs
               .map((d) => AuditLogModel.fromJson(d.data(), documentId: d.id))
               .toList();
+          _inMemoryLogs.clear();
+          _inMemoryLogs.addAll(list);
           yield list;
         }
       } catch (e) {
         debugPrint('Error streaming audit logs from Firestore: $e');
-        yield List.from(_inMemoryLogs);
+        if (_inMemoryLogs.isNotEmpty) {
+          yield List.from(_inMemoryLogs);
+        } else {
+          rethrow;
+        }
       }
     }
   }

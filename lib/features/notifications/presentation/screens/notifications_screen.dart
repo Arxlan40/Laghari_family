@@ -4,44 +4,49 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../auth/providers/auth_provider.dart';
-import '../../models/notification_model.dart';
 import '../../repositories/notification_repository.dart';
 
-final userNotificationsStreamProvider =
-    StreamProvider<List<NotificationModel>>((ref) {
-  final currentUser = ref.watch(currentUserProvider);
-  if (currentUser == null) return Stream.value([]);
-  final repo = ref.watch(notificationRepositoryProvider);
-  return repo.watchUserNotifications(
-    currentUser.uid,
-    isAdmin: currentUser.isAdmin,
-    isSuperAdmin: currentUser.isSuperAdmin,
-  );
-});
-
-class NotificationsScreen extends ConsumerWidget {
+class NotificationsScreen extends ConsumerStatefulWidget {
   const NotificationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<NotificationsScreen> createState() => _NotificationsScreenState();
+}
+
+class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markAllAsRead();
+    });
+  }
+
+  void _markAllAsRead() {
+    final currentUser = ref.read(currentUserProvider);
+    if (currentUser != null) {
+      ref.read(badgeClearedOptimisticallyProvider.notifier).state = true;
+      ref.read(notificationRepositoryProvider).markAllAsRead(
+            currentUser.uid,
+            isAdmin: currentUser.isAdmin,
+            isSuperAdmin: currentUser.isSuperAdmin,
+          );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final loc = AppLocalizations.of(context);
     final notifsAsync = ref.watch(userNotificationsStreamProvider);
     final currentUser = ref.watch(currentUserProvider);
+    final currentUserId = currentUser?.uid ?? '';
 
     return Scaffold(
       appBar: AppBar(
         title: Text(loc.translate('notifications')),
         actions: [
           TextButton(
-            onPressed: () {
-              if (currentUser != null) {
-                ref.read(notificationRepositoryProvider).markAllAsRead(
-                      currentUser.uid,
-                      isAdmin: currentUser.isAdmin,
-                      isSuperAdmin: currentUser.isSuperAdmin,
-                    );
-              }
-            },
+            onPressed: _markAllAsRead,
             child: Text(loc.translate('mark_all_read'), style: const TextStyle(color: AppColors.emeraldLight)),
           ),
         ],
@@ -69,13 +74,15 @@ class NotificationsScreen extends ConsumerWidget {
             separatorBuilder: (_, _) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final notif = notifications[index];
+              final isRead = notif.isReadFor(currentUserId);
+
               return Card(
-                color: notif.isRead ? AppColors.darkCard : AppColors.darkSurface,
+                color: isRead ? AppColors.darkCard : AppColors.darkSurface,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                   side: BorderSide(
-                    color: notif.isRead ? AppColors.darkBorder : AppColors.emerald.withValues(alpha: 0.6),
-                    width: notif.isRead ? 1 : 1.5,
+                    color: isRead ? AppColors.darkBorder : AppColors.emerald.withValues(alpha: 0.6),
+                    width: isRead ? 1 : 1.5,
                   ),
                 ),
                 child: ListTile(
@@ -105,11 +112,11 @@ class NotificationsScreen extends ConsumerWidget {
                         child: Text(
                           notif.title,
                           style: TextStyle(
-                            fontWeight: notif.isRead ? FontWeight.normal : FontWeight.bold,
+                            fontWeight: isRead ? FontWeight.normal : FontWeight.bold,
                           ),
                         ),
                       ),
-                      if (!notif.isRead)
+                      if (!isRead)
                         Container(
                           width: 8,
                           height: 8,
@@ -133,7 +140,10 @@ class NotificationsScreen extends ConsumerWidget {
                     ],
                   ),
                   onTap: () {
-                    ref.read(notificationRepositoryProvider).markAsRead(notif.notificationId);
+                    ref.read(notificationRepositoryProvider).markAsRead(
+                          notif.notificationId,
+                          userId: currentUserId,
+                        );
                     final memberId = notif.metadata?['member_id'];
                     if (memberId != null && memberId.toString().isNotEmpty) {
                       context.push('/member/$memberId');

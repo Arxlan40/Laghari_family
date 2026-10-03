@@ -65,7 +65,14 @@ class DescendantTreeService {
       final currentParent = allMembers[currentParentId];
       if (currentParent == null) continue;
 
-      for (final childId in currentParent.childrenIds) {
+      final candidateChildren = <String>{...currentParent.childrenIds};
+      for (final m in allMembers.values) {
+        if (m.fatherId == currentParentId) {
+          candidateChildren.add(m.id);
+        }
+      }
+
+      for (final childId in candidateChildren) {
         final child = allMembers[childId];
         if (child != null && !scopedMap.containsKey(child.id)) {
           // Include this descendant in the scoped map
@@ -76,7 +83,13 @@ class DescendantTreeService {
       }
     }
 
-    final directChildrenCount = originalRoot.childrenIds
+    final directChildrenSet = <String>{...originalRoot.childrenIds};
+    for (final m in allMembers.values) {
+      if (m.fatherId == originalRoot.id) {
+        directChildrenSet.add(m.id);
+      }
+    }
+    final directChildrenCount = directChildrenSet
         .where((id) => allMembers.containsKey(id))
         .length;
 

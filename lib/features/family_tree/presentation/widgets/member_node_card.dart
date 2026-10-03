@@ -1,14 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:uuid/uuid.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
-import '../../../admin/models/audit_log_model.dart';
-import '../../../admin/repositories/audit_log_repository.dart';
-import '../../../auth/providers/auth_provider.dart';
 import '../../models/family_member.dart';
-import '../../repositories/family_repository.dart';
+import 'delete_member_dialog.dart';
 import 'edit_name_dialog.dart';
 import 'member_avatar_widget.dart';
 import 'member_preview_sheet.dart';
@@ -76,7 +72,6 @@ class MemberNodeCard extends ConsumerWidget {
     final loc = AppLocalizations.of(context);
     final isUrdu = loc.isUrdu;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final currentUser = ref.watch(currentUserProvider);
 
     final primaryName = member.localizedName(loc.locale.languageCode);
     final secondaryName = member.secondaryName(loc.locale.languageCode);
@@ -197,77 +192,7 @@ class MemberNodeCard extends ConsumerWidget {
                             }
                             break;
                           case 'delete':
-                            final confirm = await showDialog<bool>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: Row(
-                                  children: [
-                                    const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
-                                    const SizedBox(width: 8),
-                                    Text(isUrdu ? 'رکن مستقل حذف کریں؟' : 'Delete Member?'),
-                                  ],
-                                ),
-                                content: Text(
-                                  isUrdu
-                                      ? 'کیا آپ واقعی "${member.localizedName(loc.locale.languageCode)}" کو شجرہ نسب سے مستقل طور پر حذف کرنا چاہتے ہیں؟ یہ عمل واپس نہیں لیا جا سکتا۔'
-                                      : 'Are you sure you want to permanently delete "${member.localizedName(loc.locale.languageCode)}" from the family tree? This action cannot be undone.',
-                                ),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(ctx, false),
-                                    child: Text(loc.translate('cancel')),
-                                  ),
-                                  ElevatedButton(
-                                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-                                    onPressed: () => Navigator.pop(ctx, true),
-                                    child: Text(
-                                      isUrdu ? 'مستقل حذف کریں' : 'Delete Permanently',
-                                      style: const TextStyle(color: Colors.white),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-
-                            if (confirm == true && context.mounted) {
-                              final messenger = ScaffoldMessenger.of(context);
-                              try {
-                                await ref.read(familyRepositoryProvider).deleteMember(member.id);
-
-                                await ref.read(auditLogRepositoryProvider).recordLog(
-                                  AuditLogModel(
-                                    logId: const Uuid().v4(),
-                                    action: 'direct_delete_member',
-                                    performedBy: currentUser?.uid ?? 'admin',
-                                    performedByName: currentUser?.name ?? 'Admin',
-                                    performedByRole: currentUser?.role.value ?? 'admin',
-                                    performedByPhone: currentUser?.phone,
-                                    targetMemberId: member.id,
-                                    targetMemberName: member.nameEn,
-                                    oldData: member.toJson(),
-                                    timestamp: DateTime.now(),
-                                  ),
-                                );
-
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: AppColors.danger,
-                                    content: Text(
-                                      isUrdu
-                                          ? 'رکن کو شجرہ نسب سے مستقل طور پر حذف کر دیا گیا۔'
-                                          : 'Member deleted permanently from the family tree.',
-                                    ),
-                                  ),
-                                );
-                              } catch (e) {
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: AppColors.danger,
-                                    content: Text('Failed to delete member: $e'),
-                                  ),
-                                );
-                              }
-                            }
+                            await DeleteMemberDialog.show(context, ref, member);
                             break;
                         }
                       },
@@ -441,11 +366,11 @@ class MemberNodeCard extends ConsumerWidget {
                 ),
               ),
 
-              // Bottom Branch Expander Pill (Requirement: "on click open its childeren tree")
+              // Bottom Branch Children Count Indicator (Always open tree)
               if (hasChildren) ...[
                 const Divider(height: 1, thickness: 0.8),
                 InkWell(
-                  onTap: onExpandToggle ?? onTap,
+                  onTap: onTap,
                   borderRadius: const BorderRadius.only(
                     bottomLeft: Radius.circular(12),
                     bottomRight: Radius.circular(12),
@@ -453,9 +378,7 @@ class MemberNodeCard extends ConsumerWidget {
                   child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     decoration: BoxDecoration(
-                      color: isExpanded
-                          ? (isDark ? const Color(0xFF1A3326) : const Color(0xFFE8F5E9))
-                          : (isDark ? Colors.black26 : const Color(0xFFF9F9F9)),
+                      color: isDark ? const Color(0xFF1A3326) : const Color(0xFFE8F5E9),
                       borderRadius: const BorderRadius.only(
                         bottomLeft: Radius.circular(12),
                         bottomRight: Radius.circular(12),
@@ -464,18 +387,18 @@ class MemberNodeCard extends ConsumerWidget {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
-                          isExpanded ? Icons.remove_circle_outline : Icons.add_circle_outline,
+                        const Icon(
+                          Icons.people_alt_outlined,
                           size: 13,
-                          color: isExpanded ? AppColors.emerald : genderColor,
+                          color: AppColors.emerald,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           '${member.childrenIds.length} ${isUrdu ? "اولاد" : (member.childrenIds.length == 1 ? "Child" : "Children")}',
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 10.5,
                             fontWeight: FontWeight.bold,
-                            color: isExpanded ? AppColors.emerald : (isDark ? Colors.white70 : Colors.black87),
+                            color: AppColors.emerald,
                           ),
                         ),
                       ],

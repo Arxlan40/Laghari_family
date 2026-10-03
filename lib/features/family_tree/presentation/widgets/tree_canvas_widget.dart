@@ -7,6 +7,7 @@ import '../../../../core/services/crashlytics_service.dart';
 import '../../../auth/providers/auth_provider.dart';
 import '../../models/family_member.dart';
 import '../../providers/family_tree_providers.dart';
+import '../../repositories/family_repository.dart';
 import 'member_node_card.dart';
 
 /// Clean MyHeritage / Pedigree-inspired family tree canvas.
@@ -279,7 +280,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
 
     final currentMatrix = _transformController.value;
     final currentScale = currentMatrix.getMaxScaleOnAxis();
-    final newScale = (currentScale * factor).clamp(0.0005, 25.0);
+    final newScale = (currentScale * factor).clamp(0.0001, 40.0);
     final actualFactor = newScale / currentScale;
 
     if ((actualFactor - 1.0).abs() < 0.0001) return;
@@ -340,7 +341,7 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
       final scaleY = availableH / treeSize.height;
 
       double fitScale = math.min(scaleX, scaleY);
-      fitScale = fitScale.clamp(0.0005, 4.0);
+      fitScale = fitScale.clamp(0.0001, 10.0);
 
       // Center the tree content inside the available viewport area
       final contentCenterLocal =
@@ -399,9 +400,161 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
       }
     });
 
+    final membersAsync = widget.customMembersMap == null
+        ? ref.watch(familyMembersStreamProvider)
+        : null;
+
+    // 1. Initial Loading State (Show polished loader before data arrives)
+    if (membersAsync != null && membersAsync.isLoading && !membersAsync.hasValue) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: isDark ? AppColors.darkCard : Colors.white,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.emerald.withValues(alpha: 0.2),
+                    blurRadius: 16,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: const CircularProgressIndicator(
+                strokeWidth: 3,
+                valueColor: AlwaysStoppedAnimation<Color>(AppColors.emerald),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              isUrdu ? 'شجرہ نسب لوڈ ہو رہا ہے...' : 'Loading Family Tree...',
+              style: TextStyle(
+                color: isDark ? AppColors.goldLight : AppColors.emeraldDark,
+                fontSize: 17,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.3,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              isUrdu ? 'براہ کرم چند لمحے انتظار فرمائیں' : 'Please wait a moment',
+              style: TextStyle(
+                color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                fontSize: 13,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 2. Error State with Retry Action
+    if (membersAsync != null && membersAsync.hasError && (!membersAsync.hasValue || membersAsync.value!.isEmpty)) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.danger.withValues(alpha: 0.1),
+                ),
+                child: const Icon(Icons.error_outline, size: 48, color: AppColors.danger),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                isUrdu ? 'شجرہ نسب لوڈ نہیں ہو سکا۔' : 'Unable to load family tree.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                isUrdu ? 'براہ کرم دوبارہ کوشش کریں۔' : 'Please try again.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, color: AppColors.textLightSecondary),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.emerald,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                ),
+                onPressed: () {
+                  ref.invalidate(familyMembersStreamProvider);
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text(
+                  isUrdu ? 'دوبارہ کوشش کریں' : 'Retry',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // 3. Empty State (When data loaded but no members exist)
     if (membersMap.isEmpty) {
-      return const Center(
-        child: CircularProgressIndicator(color: AppColors.emerald),
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.gold.withValues(alpha: 0.1),
+                ),
+                child: const Icon(Icons.people_outline, size: 48, color: AppColors.gold),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                isUrdu ? 'کوئی خاندانی رکن نہیں ملا' : 'No family members found',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                isUrdu
+                    ? 'شجرہ نسب میں فی الحال کوئی ڈیٹا موجود نہیں ہے۔'
+                    : 'The family tree currently has no member records.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: AppColors.textLightSecondary),
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.emerald,
+                  side: const BorderSide(color: AppColors.emerald),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+                ),
+                onPressed: () {
+                  ref.read(familyRepositoryProvider).ensureInitialDataImported();
+                  ref.invalidate(familyMembersStreamProvider);
+                },
+                icon: const Icon(Icons.refresh, size: 18),
+                label: Text(
+                  isUrdu ? 'ریفریش کریں' : 'Refresh Tree',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -442,8 +595,8 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
           child: InteractiveViewer(
             transformationController: _transformController,
             boundaryMargin: const EdgeInsets.all(double.infinity),
-            minScale: 0.0005,
-            maxScale: 25.0,
+            minScale: 0.0001,
+            maxScale: 40.0,
             clipBehavior: Clip.none,
             constrained: false,
             trackpadScrollCausesScale: true,
@@ -614,9 +767,9 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
                               ),
                               subtitle: Text(
                                 father != null
-                                    ? '${isUrdu ? "ولدیت:" : "Son/Daughter of"} ${father.localizedName(loc.locale.languageCode)} • Gen ${m.generation}'
-                                    : 'Gen ${m.generation}',
-                                style: const TextStyle(fontSize: 11),
+                                    ? '${isUrdu ? "والد:" : "Father:"} ${father.localizedName(loc.locale.languageCode)} • ${isUrdu ? "پشت:" : "Generation:"} ${m.generation}'
+                                    : '${isUrdu ? "پشت:" : "Generation:"} ${m.generation}',
+                                style: const TextStyle(fontSize: 11, color: AppColors.goldLight),
                               ),
                               trailing: const Icon(Icons.arrow_forward_ios,
                                   size: 13, color: AppColors.gold),
@@ -704,12 +857,20 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
     bool isDark,
   ) {
     final isSelected = treeState.selectedMemberId == member.id;
-    final isExpanded = treeState.expandedNodeIds.contains(member.id);
 
-    final children = member.childrenIds
-        .map((id) => membersMap[id])
-        .whereType<FamilyMember>()
-        .toList();
+    final childrenMap = <String, FamilyMember>{};
+    for (final cid in member.childrenIds) {
+      final c = membersMap[cid];
+      if (c != null && (c.fatherId == member.id || c.fatherId == null)) {
+        childrenMap[c.id] = c;
+      }
+    }
+    for (final m in membersMap.values) {
+      if (m.fatherId == member.id && m.id != member.id) {
+        childrenMap[m.id] = m;
+      }
+    }
+    final children = childrenMap.values.toList();
 
     final isFirstInstance = _usedKeysInCurrentBuild.add(member.id);
     final cardKey = isFirstInstance ? (_cardKeys[member.id] ??= GlobalKey()) : null;
@@ -731,20 +892,17 @@ class _TreeCanvasWidgetState extends ConsumerState<TreeCanvasWidget>
           child: MemberNodeCard(
             member: member,
             isSelected: isSelected,
-            isExpanded: isExpanded,
+            isExpanded: true,
             isDirectAdmin: effectiveIsAdmin,
             onTap: () {
-              // Select and toggle or focus
+              // Select and focus
               _selectAndFocusMember(member);
-            },
-            onExpandToggle: () {
-              ref.read(familyTreeStateProvider.notifier).toggleExpanded(member.id);
             },
           ),
         ),
 
-        // Orthogonal Line Connectors & Children
-        if (children.isNotEmpty && isExpanded) ...[
+        // Orthogonal Line Connectors & Children (Tree always displayed in open/expanded state)
+        if (children.isNotEmpty) ...[
           // Vertical trunk dropping from parent card bottom
           Container(
             width: 2.0,

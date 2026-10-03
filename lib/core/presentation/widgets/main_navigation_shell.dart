@@ -90,8 +90,14 @@ class MainNavigationShell extends ConsumerWidget {
       }
     }
 
-    return Scaffold(
-      body: Stack(
+    return PopScope(
+      canPop: selectedIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        onDestinationSelected(0);
+      },
+      child: Scaffold(
+        body: Stack(
         children: [
           // Active branch screen fills the entire available body area
           Positioned.fill(child: navigationShell),
@@ -161,6 +167,6 @@ class MainNavigationShell extends ConsumerWidget {
           return navBar;
         },
       ),
-    );
+    ));
   }
 }

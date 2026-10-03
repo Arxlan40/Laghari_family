@@ -201,42 +201,99 @@ class NotificationRepository {
   }
 
   /// Marks a single notification as read
-  Future<void> markAsRead(String notificationId) async {
+  Future<void> markAsRead(String notificationId, {String? userId}) async {
     final idx = _inMemoryNotifications.indexWhere((n) => n.notificationId == notificationId);
     if (idx != -1) {
-      _inMemoryNotifications[idx] = _inMemoryNotifications[idx].copyWith(isRead: true);
+      final current = _inMemoryNotifications[idx];
+      final newReadBy = List<String>.from(current.readBy);
+      if (userId != null && !newReadBy.contains(userId)) {
+        newReadBy.add(userId);
+      }
+      _inMemoryNotifications[idx] = current.copyWith(
+        isRead: (userId == null || current.userId == userId) ? true : current.isRead,
+        readBy: newReadBy,
+      );
       _notifStream.add(List.from(_inMemoryNotifications));
     }
 
     if (_hasLiveFirestore) {
       try {
-        await _collection.doc(notificationId).update({'is_read': true});
+        final updateData = <String, dynamic>{};
+        if (userId != null) {
+          updateData['read_by'] = FieldValue.arrayUnion([userId]);
+        }
+        updateData['is_read'] = true;
+        await _collection.doc(notificationId).update(updateData);
       } catch (_) {}
     }
   }
 
-  /// Marks all notifications belonging to the user as read
+  /// Marks all notifications belonging to the user as read (including broadcast)
   Future<void> markAllAsRead(String userId, {bool isAdmin = false, bool isSuperAdmin = false}) async {
+    bool matchesUser(NotificationModel n) {
+      if (n.userId == userId || n.userId == 'all_users') return true;
+      if (isAdmin && n.userId == 'all_admins') return true;
+      if (isSuperAdmin && (n.userId == 'all_super_admins' || n.userId == 'all_admins')) return true;
+      return false;
+    }
+
     for (int i = 0; i < _inMemoryNotifications.length; i++) {
       final n = _inMemoryNotifications[i];
-      if (n.userId == userId) {
-        _inMemoryNotifications[i] = n.copyWith(isRead: true);
+      if (matchesUser(n)) {
+        final newReadBy = List<String>.from(n.readBy);
+        if (!newReadBy.contains(userId)) newReadBy.add(userId);
+        _inMemoryNotifications[i] = n.copyWith(
+          isRead: n.userId == userId ? true : n.isRead,
+          readBy: newReadBy,
+        );
       }
     }
     _notifStream.add(List.from(_inMemoryNotifications));
 
     if (_hasLiveFirestore) {
       try {
-        final snap = await _collection
+        // 1. Direct user notifications: update is_read = true and read_by
+        final userSnap = await _collection
             .where('user_id', isEqualTo: userId)
             .where('is_read', isEqualTo: false)
             .get();
-        if (snap.docs.isNotEmpty) {
+        if (userSnap.docs.isNotEmpty) {
           final batch = _firestore!.batch();
-          for (final doc in snap.docs) {
-            batch.update(doc.reference, {'is_read': true});
+          for (final doc in userSnap.docs) {
+            batch.update(doc.reference, {
+              'is_read': true,
+              'read_by': FieldValue.arrayUnion([userId]),
+            });
           }
           await batch.commit();
+        }
+
+        // 2. Broadcast / audience notifications: add userId to read_by array
+        final broadcastAudiences = <String>['all_users'];
+        if (isAdmin) broadcastAudiences.add('all_admins');
+        if (isSuperAdmin) broadcastAudiences.add('all_super_admins');
+
+        for (final audience in broadcastAudiences) {
+          final snap = await _collection
+              .where('user_id', isEqualTo: audience)
+              .get();
+          if (snap.docs.isNotEmpty) {
+            final batch = _firestore!.batch();
+            bool hasUpdates = false;
+            for (final doc in snap.docs) {
+              final data = doc.data();
+              final readByList = data['read_by'] as List? ?? [];
+              if (!readByList.contains(userId)) {
+                batch.update(doc.reference, {
+                  'read_by': FieldValue.arrayUnion([userId]),
+                });
+                hasUpdates = true;
+              }
+            }
+            if (hasUpdates) {
+              await batch.commit();
+            }
+          }
         }
       } catch (e) {
         debugPrint('Error marking all notifications read in Firestore: $e');
@@ -276,12 +333,20 @@ final sentNotificationsStreamProvider = StreamProvider<List<NotificationModel>>(
 final unreadNotificationsCountProvider = Provider<int>((ref) {
   final notifsAsync = ref.watch(userNotificationsStreamProvider);
   final isCleared = ref.watch(badgeClearedOptimisticallyProvider);
-  final actualUnread = notifsAsync.valueOrNull?.where((n) => !n.isRead).length ?? 0;
+  final currentUser = ref.watch(currentUserProvider);
+
+  if (currentUser == null) return 0;
+  final currentUserId = currentUser.uid;
+
+  final actualUnread = notifsAsync.valueOrNull
+          ?.where((n) => !n.isReadFor(currentUserId))
+          .length ??
+      0;
 
   // Safely reset optimistic badge flag whenever new notifications arrive
   ref.listen<AsyncValue<List<NotificationModel>>>(userNotificationsStreamProvider, (prev, next) {
-    final prevCount = prev?.valueOrNull?.where((n) => !n.isRead).length ?? 0;
-    final nextCount = next.valueOrNull?.where((n) => !n.isRead).length ?? 0;
+    final prevCount = prev?.valueOrNull?.where((n) => !n.isReadFor(currentUserId)).length ?? 0;
+    final nextCount = next.valueOrNull?.where((n) => !n.isReadFor(currentUserId)).length ?? 0;
     if (nextCount > prevCount) {
       ref.read(badgeClearedOptimisticallyProvider.notifier).state = false;
     }

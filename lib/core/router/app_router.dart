@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -32,31 +31,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
   final splashCheckDone = ref.watch(splashCheckDoneProvider);
 
   return GoRouter(
-    initialLocation: kIsWeb ? '/family-tree' : '/splash',
+    initialLocation: '/splash',
     redirect: (BuildContext context, GoRouterState state) {
       final loc = state.matchedLocation;
 
       // 1. Auth & Splash initialization logic
-      if (kIsWeb) {
-        // On Web, bypass splash screen completely
-        if (loc == '/splash') {
-          final user = authState.valueOrNull;
-          if (user != null) {
-            return user.isAdmin ? '/admin/dashboard' : '/family-tree';
-          }
-          return '/login';
-        }
-        if (authState.isLoading) {
-          return null;
-        }
-      } else {
-        // On mobile, keep on splash until checks finish
-        if (loc == '/splash' && (authState.isLoading || !splashCheckDone)) {
-          return null;
-        }
-        if (authState.isLoading) {
-          return loc == '/splash' ? null : '/splash';
-        }
+      // Until auth resolution has finished and splash checks are completed, keep on splash screen.
+      final isAuthLoading = authState.isLoading;
+      final isSplashReady = splashCheckDone;
+
+      if (isAuthLoading || !isSplashReady) {
+        if (loc == '/splash') return null;
+        return '/splash?from=${Uri.encodeComponent(state.uri.toString())}';
       }
 
       final user = authState.valueOrNull;
@@ -71,8 +57,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         return isAuthRoute ? null : '/login';
       }
 
-      // 3. Authenticated users attempting to visit splash or auth routes go to role-specific first screen
+      // 3. Authenticated users attempting to visit splash or auth routes go to destination or role-specific first screen
       if (loc == '/splash' || isAuthRoute) {
+        final from = state.uri.queryParameters['from'];
+        if (from != null && from.isNotEmpty) {
+          final decodedFrom = Uri.decodeComponent(from);
+          if (decodedFrom != '/splash' &&
+              decodedFrom != '/login' &&
+              decodedFrom != '/signup' &&
+              decodedFrom != '/admin-login') {
+            return decodedFrom;
+          }
+        }
         if (user.isAdmin) {
           return '/admin/dashboard';
         }

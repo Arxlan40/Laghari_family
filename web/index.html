@@ -33,6 +33,29 @@
 
   <title>Laghari Family Tree | شجرہ نسب لغاری خاندان</title>
   <link rel="manifest" href="manifest.json">
+
+  <!--
+    Pre-load Firebase JS SDK v11.9.1 (the exact version firebase_core_web 2.24.1 expects).
+    This prevents the plugin from dynamically injecting scripts via document.head!.appendChild(),
+    which crashes on iOS WebKit because document.head can be null during early page load.
+    firebase_core_web checks: if (globalContext.getProperty('firebase_core'.toJS) != null) return;
+    So setting window.firebase_core makes it skip the buggy injection entirely.
+  -->
+  <script type="module">
+    import * as firebase_core from 'https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js';
+    import * as firebase_auth from 'https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js';
+    import * as firebase_firestore from 'https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js';
+    import * as firebase_storage from 'https://www.gstatic.com/firebasejs/11.9.1/firebase-storage.js';
+    import * as firebase_analytics from 'https://www.gstatic.com/firebasejs/11.9.1/firebase-analytics.js';
+    import * as firebase_messaging from 'https://www.gstatic.com/firebasejs/11.9.1/firebase-messaging.js';
+    window.firebase_core = firebase_core;
+    window.firebase_auth = firebase_auth;
+    window.firebase_firestore = firebase_firestore;
+    window.firebase_storage = firebase_storage;
+    window.firebase_analytics = firebase_analytics;
+    window.firebase_messaging = firebase_messaging;
+  </script>
+
   <style>
     body {
       margin: 0;
@@ -111,6 +134,7 @@
     observer.observe(document.body, { childList: true, subtree: true });
     setTimeout(removeAppLoadingScreen, 3000);
   </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

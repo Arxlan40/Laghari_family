@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -16,14 +17,71 @@ import 'features/notifications/services/fcm_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  String? firebaseError;
+
   // Initialize Firebase Core
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    if (Firebase.apps.isEmpty) {
+      if (kIsWeb) {
+        FirebaseOptions? opts;
+        try {
+          opts = DefaultFirebaseOptions.currentPlatform;
+        } catch (e) {
+          throw Exception('Failed to get DefaultFirebaseOptions: $e');
+        }
+        await Firebase.initializeApp(options: opts);
+      } else {
+        try {
+          await Firebase.initializeApp(
+            options: DefaultFirebaseOptions.currentPlatform,
+          );
+        } catch (e) {
+          debugPrint('Firebase.initializeApp with options failed on mobile: $e. Falling back to native init...');
+          if (Firebase.apps.isEmpty) {
+            await Firebase.initializeApp();
+          }
+        }
+      }
+    }
     debugPrint('Firebase initialized successfully.');
   } catch (e, stack) {
     debugPrint('Firebase initialization error: $e\n$stack');
+    firebaseError = '$e\n\nStackTrace:\n$stack';
+  }
+
+
+  // If Firebase completely failed to load, show a fallback error screen.
+  if (firebaseError != null || Firebase.apps.isEmpty) {
+    runApp(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.error_outline, color: Colors.red, size: 64),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Application Error',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Firebase failed to initialize. Please check your internet connection or update the app.\n\nDetails: ${firebaseError ?? "Unknown"}',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.red),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
   }
 
   // Initialize Crashlytics

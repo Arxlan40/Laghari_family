@@ -112,6 +112,7 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
 
   Map<String, dynamic> _collectData() {
     return {
+      'id': 'member_${const Uuid().v4()}',
       'name_en': _nameEnController.text.trim(),
       'name_ur': _nameUrController.text.trim(),
       'father_id': widget.fatherId,
@@ -135,8 +136,7 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
     setState(() => _isSubmitting = true);
     try {
       final data = _collectData();
-      final cleanName = data['name_en'].toString().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
-      final newId = '${cleanName}_${DateTime.now().millisecondsSinceEpoch % 10000}';
+      final newId = data['id']?.toString() ?? 'member_${const Uuid().v4()}';
 
       final newMember = FamilyMember(
         id: newId,
@@ -305,7 +305,20 @@ class _RequestAddChildScreenState extends ConsumerState<RequestAddChildScreen> {
                       '${loc.translate("father")}: ${father.localizedName(loc.locale.languageCode)}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    subtitle: Text('${loc.translate("generation")}: ${father.generation}'),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (father.secondaryName(loc.locale.languageCode).isNotEmpty)
+                          Text(
+                            father.secondaryName(loc.locale.languageCode),
+                            style: const TextStyle(fontSize: 11, color: AppColors.textLightSecondary),
+                          ),
+                        Text(
+                          '${loc.translate("generation")}: ${father.generation}${father.fatherId != null && ref.watch(familyMembersMapProvider).containsKey(father.fatherId) ? " • ${loc.translate("father")}: ${ref.watch(familyMembersMapProvider)[father.fatherId]!.localizedName(loc.locale.languageCode)}" : ""}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.goldLight),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),

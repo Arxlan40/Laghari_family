@@ -1,7 +1,7 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/presentation/widgets/update_dialog.dart';
@@ -9,7 +9,7 @@ import '../../../../core/services/app_version_service.dart';
 import '../../../../core/services/device_info_service.dart';
 import '../../providers/auth_provider.dart';
 
-final splashCheckDoneProvider = StateProvider<bool>((ref) => kIsWeb);
+final splashCheckDoneProvider = StateProvider<bool>((ref) => false);
 
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
@@ -19,7 +19,7 @@ class SplashScreen extends ConsumerStatefulWidget {
 }
 
 class _SplashScreenState extends ConsumerState<SplashScreen> {
-  String _statusText = 'Checking application version...';
+  String _statusText = 'Checking authentication...';
 
   @override
   void initState() {
@@ -30,52 +30,59 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
   }
 
   Future<void> _runStartupChecks() async {
-    // On Web: Load instantly without any version checks or artificial delays
+    final loc = AppLocalizations.of(context);
+
+    // 1. Wait for Firebase Authentication state to fully resolve first
+    try {
+      if (mounted) {
+        setState(() {
+          _statusText = loc.isUrdu ? 'صارف کی تصدیق جاری ہے...' : 'Verifying account...';
+        });
+      }
+      await ref.read(authRepositoryProvider).getCurrentUser();
+    } catch (e) {
+      debugPrint('Auth resolution check note: $e');
+    }
+
+    // On Web: Mark splash done immediately once auth state is resolved.
+    // Declarative GoRouter redirect handles seamless, flash-free routing.
     if (kIsWeb) {
       if (mounted) {
         ref.read(splashCheckDoneProvider.notifier).state = true;
-        final currentUser = ref.read(currentUserProvider);
-        if (currentUser != null) {
-          if (currentUser.isAdmin) {
-            context.go('/admin/dashboard');
-          } else {
-            context.go('/family-tree');
-          }
-        } else {
-          context.go('/login');
-        }
       }
       return;
     }
-    // 1. Brief splash duration for smooth branding presentation
-    await Future.delayed(const Duration(milliseconds: 1000));
-    if (!mounted) return;
 
-    final loc = AppLocalizations.of(context);
-    setState(() {
-      _statusText = loc.isUrdu ? 'تصدیق جاری ہے...' : 'Checking application version...';
-    });
+    final isAndroid = !kIsWeb && Platform.isAndroid;
 
-    try {
-      final versionService = ref.read(appVersionServiceProvider);
-      final result = await versionService.checkForUpdate();
+    if (isAndroid) {
+      if (mounted) {
+        setState(() {
+          _statusText = loc.isUrdu ? 'تصدیق جاری ہے...' : 'Checking application version...';
+        });
+      }
 
-      if (mounted && result.updateAvailable && result.remoteInfo != null) {
-        if (!AppVersionService.hasSkippedThisSession) {
-          await UpdateDialog.show(
-            context,
-            currentVersion: result.currentVersion,
-            versionInfo: result.remoteInfo!,
-          );
+      try {
+        final versionService = ref.read(appVersionServiceProvider);
+        final result = await versionService.checkForUpdate().timeout(const Duration(seconds: 4));
 
-          // If force update is enabled, user must update and cannot proceed
-          if (result.remoteInfo!.forceUpdate) {
-            return;
+        if (mounted && result.updateAvailable && result.remoteInfo != null) {
+          if (!AppVersionService.hasSkippedThisSession) {
+            await UpdateDialog.show(
+              context,
+              currentVersion: result.currentVersion,
+              versionInfo: result.remoteInfo!,
+            );
+
+            // If force update is enabled, user must update and cannot proceed
+            if (result.remoteInfo!.forceUpdate) {
+              return;
+            }
           }
         }
+      } catch (e) {
+        debugPrint('Startup check error: $e');
       }
-    } catch (e) {
-      debugPrint('Startup check error: $e');
     }
 
     // 2. Fetch device details & location on splash screen
@@ -98,16 +105,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> {
 
     if (mounted) {
       ref.read(splashCheckDoneProvider.notifier).state = true;
-      final currentUser = ref.read(currentUserProvider);
-      if (currentUser != null) {
-        if (currentUser.isAdmin) {
-          context.go('/admin/dashboard');
-        } else {
-          context.go('/family-tree');
-        }
-      } else {
-        context.go('/login');
-      }
     }
   }
 

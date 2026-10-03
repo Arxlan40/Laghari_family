@@ -16,6 +16,7 @@ import '../../../storage/services/supabase_storage_service.dart';
 import '../../models/family_member.dart';
 import '../../providers/family_tree_providers.dart';
 import '../../repositories/family_repository.dart';
+import '../widgets/delete_member_dialog.dart';
 import '../widgets/edit_name_dialog.dart';
 import '../widgets/member_avatar_widget.dart';
 
@@ -266,78 +267,9 @@ class MemberProfileScreen extends ConsumerWidget {
                       foregroundColor: AppColors.danger,
                     ),
                     onPressed: () async {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: Row(
-                            children: [
-                              const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
-                              const SizedBox(width: 8),
-                              Text(loc.isUrdu ? 'رکن مستقل حذف کریں؟' : 'Delete Member?'),
-                            ],
-                          ),
-                          content: Text(
-                            loc.isUrdu
-                                ? 'کیا آپ واقعی "${member.localizedName(loc.locale.languageCode)}" کو شجرہ نسب سے مستقل طور پر حذف کرنا چاہتے ہیں؟ یہ عمل واپس نہیں لیا جا سکتا۔'
-                                : 'Are you sure you want to permanently delete "${member.localizedName(loc.locale.languageCode)}" from the family tree? This action cannot be undone.',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx, false),
-                              child: Text(loc.translate('cancel')),
-                            ),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-                              onPressed: () => Navigator.pop(ctx, true),
-                              child: Text(
-                                loc.isUrdu ? 'مستقل حذف کریں' : 'Delete Permanently',
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-
-                      if (confirm == true && context.mounted) {
-                        final messenger = ScaffoldMessenger.of(context);
-                        final navigator = Navigator.of(context);
-                        try {
-                          await ref.read(familyRepositoryProvider).deleteMember(member.id);
-
-                          await ref.read(auditLogRepositoryProvider).recordLog(
-                            AuditLogModel(
-                              logId: const Uuid().v4(),
-                              action: 'direct_delete_member',
-                              performedBy: currentUser?.uid ?? 'admin',
-                              performedByName: currentUser?.name ?? 'Admin',
-                              performedByRole: currentUser?.role.value ?? 'admin',
-                              performedByPhone: currentUser?.phone,
-                              targetMemberId: member.id,
-                              targetMemberName: member.nameEn,
-                              oldData: member.toJson(),
-                              timestamp: DateTime.now(),
-                            ),
-                          );
-
-                          messenger.showSnackBar(
-                            SnackBar(
-                              backgroundColor: AppColors.danger,
-                              content: Text(
-                                loc.isUrdu
-                                    ? 'رکن کو شجرہ نسب سے مستقل طور پر حذف کر دیا گیا۔'
-                                    : 'Member deleted permanently from the family tree.',
-                              ),
-                            ),
-                          );
-                          navigator.pop();
-                        } catch (e) {
-                          messenger.showSnackBar(
-                            SnackBar(
-                              backgroundColor: AppColors.danger,
-                              content: Text('Failed to delete member: $e'),
-                            ),
-                          );
-                        }
+                      final deleted = await DeleteMemberDialog.show(context, ref, member);
+                      if (deleted && context.mounted) {
+                        Navigator.of(context).pop();
                       }
                     },
                     icon: const Icon(Icons.delete_forever, size: 18, color: AppColors.danger),

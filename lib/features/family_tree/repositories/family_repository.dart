@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 import 'package:laghari_family/core/config/app_config.dart';
 import 'package:laghari_family/core/models/validation_report.dart';
 import 'package:laghari_family/core/utils/json_validator.dart';
@@ -108,6 +109,8 @@ class FamilyRepository {
         _inMemoryStore[member.id] = member;
       }
       _localLoaded = true;
+
+      _normalizeStore();
 
       // Ensure local file cache is populated for future instant access
       await _saveToLocalFile();
@@ -293,17 +296,150 @@ class FamilyRepository {
     return null;
   }
 
+  /// Normalizes store to guarantee data integrity:
+  /// 1. Stable non-empty IDs for every member.
+  /// 2. Bidirectional parent-child relationship consistency without cross-linking.
+  /// 3. Removes deleted or dangling IDs.
+  void _normalizeStore() {
+    final toRemove = <String>[];
+    final toAdd = <FamilyMember>[];
+
+    for (final member in _inMemoryStore.values) {
+      if (member.id.trim().isEmpty) {
+        final newId = 'member_${const Uuid().v4()}';
+        toRemove.add(member.id);
+        toAdd.add(member.copyWith(id: newId));
+      }
+    }
+
+    for (final id in toRemove) {
+      _inMemoryStore.remove(id);
+    }
+    for (final m in toAdd) {
+      _inMemoryStore[m.id] = m;
+    }
+
+    // Bidirectional sync: Ensure every child whose fatherId is set is in father's childrenIds,
+    // and no father's childrenIds contains children pointing to a different father.
+    for (final member in _inMemoryStore.values.toList()) {
+      if (member.fatherId != null && member.fatherId!.isNotEmpty) {
+        final father = _inMemoryStore[member.fatherId!];
+        if (father != null && !father.childrenIds.contains(member.id)) {
+          _inMemoryStore[father.id] = father.copyWith(
+            childrenIds: [...father.childrenIds, member.id],
+          );
+        }
+      }
+    }
+
+    // Clean up any cross-linked or non-existent children
+    for (final entry in _inMemoryStore.entries.toList()) {
+      final fatherId = entry.key;
+      final father = entry.value;
+      final cleanChildren = <String>[];
+      for (final cid in father.childrenIds) {
+        final child = _inMemoryStore[cid];
+        if (child != null && child.fatherId == fatherId) {
+          if (!cleanChildren.contains(cid)) {
+            cleanChildren.add(cid);
+          }
+        }
+      }
+      if (cleanChildren.length != father.childrenIds.length) {
+        _inMemoryStore[fatherId] = father.copyWith(childrenIds: cleanChildren);
+      }
+    }
+  }
+
+  /// Returns the maximum depth of descendants below [memberId].
+  /// 0 = no children
+  /// 1 = has direct children, but none of them have children
+  /// 2 = has grandchildren
+  /// 3 = has great-grandchildren
+  /// 4+ = has great-great-grandchildren or deeper
+  int getDescendantDepth(String memberId, {Map<String, FamilyMember>? customMap, Set<String>? visited}) {
+    final map = customMap ?? _inMemoryStore;
+    visited ??= <String>{};
+    if (visited.contains(memberId)) return 0;
+    visited.add(memberId);
+
+    final member = map[memberId];
+    if (member == null) return 0;
+
+    final children = map.values.where((m) =>
+      m.id != memberId &&
+      (m.fatherId == memberId || member.childrenIds.contains(m.id))
+    ).toList();
+
+    if (children.isEmpty) return 0;
+
+    int maxChildDepth = 0;
+    for (final child in children) {
+      final depth = getDescendantDepth(child.id, customMap: map, visited: visited);
+      if (depth > maxChildDepth) {
+        maxChildDepth = depth;
+      }
+    }
+    return 1 + maxChildDepth;
+  }
+
+  /// Returns the set of all recursive descendant IDs below [memberId].
+  Set<String> getAllDescendantIds(String memberId, {Map<String, FamilyMember>? customMap}) {
+    final map = customMap ?? _inMemoryStore;
+    final descendants = <String>{};
+    final queue = <String>[memberId];
+    final visited = <String>{memberId};
+
+    while (queue.isNotEmpty) {
+      final currentId = queue.removeAt(0);
+      final currentMember = map[currentId];
+      final children = map.values.where((m) =>
+        m.id != currentId &&
+        (m.fatherId == currentId || (currentMember?.childrenIds.contains(m.id) ?? false)) &&
+        !visited.contains(m.id)
+      ).toList();
+
+      for (final child in children) {
+        visited.add(child.id);
+        descendants.add(child.id);
+        queue.add(child.id);
+      }
+    }
+    return descendants;
+  }
+
+  /// Determines whether [memberId] can be deleted according to role and descendant depth.
+  /// Rule:
+  /// - Admin: Can only delete a member with 3 generations or fewer below them (depth <= 3).
+  /// - Super Admin: Can delete even when member has more than 3 generations below them.
+  bool canDeleteMember(String memberId, {required bool isSuperAdmin, Map<String, FamilyMember>? customMap}) {
+    if (isSuperAdmin) return true;
+    final depth = getDescendantDepth(memberId, customMap: customMap);
+    return depth <= 3;
+  }
+
   /// Saves or updates a member in memory, local storage file, and Firestore.
+  /// Strictly prevents duplicate identities and cross-linking.
   Future<void> saveMember(FamilyMember member) async {
     _deletedMemberIds.remove(member.id);
     if (_inMemoryStore.isEmpty) {
       await _loadLocalData();
     }
 
+    final existingMember = _inMemoryStore[member.id];
+    final oldFatherId = existingMember?.fatherId;
+
     // 1. Update member in memory
     _inMemoryStore[member.id] = member;
 
-    // 2. If member has father, ensure child is in father's children_ids in memory
+    // 2. If father changed, remove from old father's childrenIds
+    if (oldFatherId != null && oldFatherId != member.fatherId && _inMemoryStore.containsKey(oldFatherId)) {
+      final oldFather = _inMemoryStore[oldFatherId]!;
+      final updated = oldFather.childrenIds.where((cid) => cid != member.id).toList();
+      _inMemoryStore[oldFatherId] = oldFather.copyWith(childrenIds: updated);
+    }
+
+    // 3. If member has father, ensure child is in father's children_ids in memory
     if (member.fatherId != null && member.fatherId!.isNotEmpty) {
       final father = _inMemoryStore[member.fatherId!];
       if (father != null && !father.childrenIds.contains(member.id)) {
@@ -312,73 +448,113 @@ class FamilyRepository {
       }
     }
 
-    // 3. Persist to local JSON file cache
+    // 4. Ensure no other member mistakenly holds member.id in childrenIds
+    for (final other in _inMemoryStore.values) {
+      if (other.id != member.fatherId && other.childrenIds.contains(member.id)) {
+        final filtered = other.childrenIds.where((cid) => cid != member.id).toList();
+        _inMemoryStore[other.id] = other.copyWith(childrenIds: filtered);
+      }
+    }
+
+    // 5. Persist to local JSON file cache
     await _saveToLocalFile();
 
-    // 4. Update in live Firestore
+    // 6. Update in live Firestore
     if (_hasLiveFirestore) {
       try {
-        await _membersCollection.doc(member.id).set(
-              member.toJson(),
-              SetOptions(merge: true),
-            );
-        // Remove from deleted_members if previously present
-        try {
-          await _deletedMembersCollection.doc(member.id).delete();
-        } catch (_) {}
+        final batch = _firestore!.batch();
+        batch.set(
+          _membersCollection.doc(member.id),
+          member.toJson(),
+          SetOptions(merge: true),
+        );
+        batch.delete(_deletedMembersCollection.doc(member.id));
 
-        if (member.fatherId != null && member.fatherId!.isNotEmpty) {
-          final fatherDoc = await _membersCollection.doc(member.fatherId).get();
+        if (oldFatherId != null && oldFatherId.trim().isNotEmpty && oldFatherId != member.fatherId) {
+          final oldDoc = await _membersCollection.doc(oldFatherId.trim()).get();
+          if (oldDoc.exists && oldDoc.data() != null) {
+            final oldFather = FamilyMember.fromJson(oldDoc.data()!);
+            final updated = oldFather.childrenIds.where((cid) => cid != member.id).toList();
+            batch.update(_membersCollection.doc(oldFatherId.trim()), {
+              'children_ids': updated,
+              'updated_at': DateTime.now().toIso8601String(),
+            });
+          }
+        }
+
+        if (member.fatherId != null && member.fatherId!.trim().isNotEmpty) {
+          final fatherDoc = await _membersCollection.doc(member.fatherId!.trim()).get();
           if (fatherDoc.exists && fatherDoc.data() != null) {
             final father = FamilyMember.fromJson(fatherDoc.data()!);
             if (!father.childrenIds.contains(member.id)) {
               final updatedChildren = [...father.childrenIds, member.id];
-              await _membersCollection.doc(father.id).update({
+              batch.update(_membersCollection.doc(father.id), {
                 'children_ids': updatedChildren,
                 'updated_at': DateTime.now().toIso8601String(),
               });
             }
           }
         }
+
+        await batch.commit();
       } catch (e) {
         debugPrint('Error saving member to Firestore: $e');
       }
     }
   }
 
-  /// Deletes a member permanently from memory, local storage, and Firestore.
-  Future<void> deleteMember(String id) async {
+  /// Cascadingly deletes a member and ALL of their descendants.
+  /// Enforces the 3-generation depth limit for normal Admins.
+  Future<void> deleteMember(String id, {bool isSuperAdmin = false}) async {
+    final cleanId = id.trim();
+    if (cleanId.isEmpty) return;
+
+    if (_inMemoryStore.isEmpty) {
+      await _loadLocalData();
+    }
+
+    final depth = getDescendantDepth(cleanId);
+    if (!isSuperAdmin && depth > 3) {
+      throw Exception(
+        'Admins can only delete members with 3 generations or fewer below them. '
+        'This member has $depth generations of descendants. Only a Super Admin can delete this branch.',
+      );
+    }
+
+    final descendantIds = getAllDescendantIds(cleanId);
+    final allIdsToDelete = {cleanId, ...descendantIds}
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toSet();
+
     // 1. Mark permanently deleted in cache & SharedPreferences
-    _deletedMemberIds.add(id);
+    _deletedMemberIds.addAll(allIdsToDelete);
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setStringList('deleted_member_ids', _deletedMemberIds.toList());
     } catch (_) {}
 
-    // 2. Remove from in-memory store
-    final member = _inMemoryStore.remove(id);
+    final member = _inMemoryStore[cleanId];
 
-    // 3. Update father and children relations in memory
-    if (member != null) {
-      if (member.fatherId != null && _inMemoryStore.containsKey(member.fatherId)) {
-        final father = _inMemoryStore[member.fatherId!];
-        if (father != null) {
-          final updatedChildren = father.childrenIds.where((cid) => cid != id).toList();
-          // Adopt orphaned children into grandfather's children list
-          for (final cid in member.childrenIds) {
-            if (!updatedChildren.contains(cid)) {
-              updatedChildren.add(cid);
-            }
-          }
-          _inMemoryStore[father.id] = father.copyWith(childrenIds: updatedChildren);
-        }
+    // 2. Remove member and all descendants from in-memory store
+    for (final delId in allIdsToDelete) {
+      _inMemoryStore.remove(delId);
+    }
+
+    // 3. Remove deleted member from father's childrenIds in memory
+    if (member?.fatherId != null && _inMemoryStore.containsKey(member!.fatherId)) {
+      final father = _inMemoryStore[member.fatherId!];
+      if (father != null) {
+        final updatedChildren = father.childrenIds.where((cid) => !allIdsToDelete.contains(cid)).toList();
+        _inMemoryStore[father.id] = father.copyWith(childrenIds: updatedChildren);
       }
-      // Re-parent children to grandfather
-      for (final cid in member.childrenIds) {
-        if (_inMemoryStore.containsKey(cid)) {
-          final child = _inMemoryStore[cid]!;
-          _inMemoryStore[cid] = child.copyWith(fatherId: member.fatherId);
-        }
+    }
+
+    // Clean any other member that holds any deleted ID
+    for (final entry in _inMemoryStore.entries) {
+      if (entry.value.childrenIds.any((cid) => allIdsToDelete.contains(cid))) {
+        final cleanChildren = entry.value.childrenIds.where((cid) => !allIdsToDelete.contains(cid)).toList();
+        _inMemoryStore[entry.key] = entry.value.copyWith(childrenIds: cleanChildren);
       }
     }
 
@@ -390,26 +566,21 @@ class FamilyRepository {
       try {
         final batch = _firestore!.batch();
 
-        // Delete from family_members
-        batch.delete(_membersCollection.doc(id));
+        for (final delId in allIdsToDelete) {
+          batch.delete(_membersCollection.doc(delId));
+          batch.set(_deletedMembersCollection.doc(delId), {
+            'deleted_at': FieldValue.serverTimestamp(),
+            'member_id': delId,
+          }, SetOptions(merge: true));
+        }
 
-        // Record in deleted_members collection
-        batch.set(_deletedMembersCollection.doc(id), {
-          'deleted_at': FieldValue.serverTimestamp(),
-          'member_id': id,
-        }, SetOptions(merge: true));
-
-        // Update father document in Firestore
-        if (member?.fatherId != null) {
-          final fatherDoc = await _membersCollection.doc(member!.fatherId).get();
+        // Update father document in Firestore if father is not being deleted
+        final fatherId = member?.fatherId?.trim();
+        if (fatherId != null && fatherId.isNotEmpty && !allIdsToDelete.contains(fatherId)) {
+          final fatherDoc = await _membersCollection.doc(fatherId).get();
           if (fatherDoc.exists && fatherDoc.data() != null) {
             final father = FamilyMember.fromJson(fatherDoc.data()!);
-            final updatedChildren = father.childrenIds.where((cid) => cid != id).toList();
-            for (final cid in member.childrenIds) {
-              if (!updatedChildren.contains(cid)) {
-                updatedChildren.add(cid);
-              }
-            }
+            final updatedChildren = father.childrenIds.where((cid) => !allIdsToDelete.contains(cid)).toList();
             batch.update(_membersCollection.doc(father.id), {
               'children_ids': updatedChildren,
               'updated_at': DateTime.now().toIso8601String(),
@@ -417,20 +588,10 @@ class FamilyRepository {
           }
         }
 
-        // Update children's fatherId in Firestore
-        if (member != null && member.childrenIds.isNotEmpty) {
-          for (final cid in member.childrenIds) {
-            batch.update(_membersCollection.doc(cid), {
-              'father_id': member.fatherId,
-              'updated_at': DateTime.now().toIso8601String(),
-            });
-          }
-        }
-
         await batch.commit();
-        debugPrint('Successfully deleted member $id permanently from Firestore.');
+        debugPrint('Successfully cascadingly deleted ${allIdsToDelete.length} members from Firestore.');
       } catch (e) {
-        debugPrint('Error deleting member from Firestore: $e');
+        debugPrint('Error cascading deleting members from Firestore: $e');
         rethrow;
       }
     }

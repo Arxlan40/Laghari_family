@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:laghari_family/core/config/app_config.dart';
+import 'package:laghari_family/core/config/firebase_options.dart';
 import 'package:laghari_family/core/services/crashlytics_service.dart';
 import '../models/user_model.dart';
 
@@ -10,13 +12,33 @@ class AuthRepository {
   final FirebaseAuth? _auth;
   final FirebaseFirestore? _firestore;
 
+  FirebaseAuth? get activeAuth {
+    if (_auth != null) return _auth;
+    try {
+      return FirebaseAuth.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  FirebaseFirestore? get activeFirestore {
+    if (_firestore != null) return _firestore;
+    try {
+      return FirebaseFirestore.instance;
+    } catch (_) {
+      return null;
+    }
+  }
+
   // In-memory user state for offline or test mode
   UserModel? _currentUser;
   final StreamController<UserModel?> _userStreamController =
       StreamController<UserModel?>.broadcast();
+  final Completer<void> _initialAuthCompleter = Completer<void>();
+  bool _isInitialAuthResolved = false;
 
   AuthRepository([this._auth, this._firestore]) {
-    final auth = _auth;
+    final auth = activeAuth;
     if (auth != null) {
       auth.authStateChanges().listen((firebaseUser) async {
         if (firebaseUser != null) {
@@ -41,32 +63,60 @@ class AuthRepository {
         } else {
           _currentUser = null;
         }
+
+        if (!_isInitialAuthResolved) {
+          _isInitialAuthResolved = true;
+          if (!_initialAuthCompleter.isCompleted) {
+            _initialAuthCompleter.complete();
+          }
+        }
         _userStreamController.add(_currentUser);
+      }, onError: (e) {
+        debugPrint('authStateChanges error: $e');
+        if (!_isInitialAuthResolved) {
+          _isInitialAuthResolved = true;
+          if (!_initialAuthCompleter.isCompleted) {
+            _initialAuthCompleter.complete();
+          }
+        }
       });
+
+      // Safety timeout: If Firebase Auth takes longer than 6 seconds, resolve to unblock app
+      Future.delayed(const Duration(seconds: 6), () {
+        if (!_isInitialAuthResolved) {
+          debugPrint('Auth initialization timeout: proceeding with current state');
+          _isInitialAuthResolved = true;
+          if (!_initialAuthCompleter.isCompleted) {
+            _initialAuthCompleter.complete();
+          }
+        }
+      });
+    } else {
+      _isInitialAuthResolved = true;
+      if (!_initialAuthCompleter.isCompleted) {
+        _initialAuthCompleter.complete();
+      }
     }
   }
 
   Stream<UserModel?> watchCurrentUser() async* {
+    if (!_isInitialAuthResolved) {
+      await _initialAuthCompleter.future;
+    }
     yield _currentUser;
     yield* _userStreamController.stream;
   }
 
   Future<UserModel?> getCurrentUser() async {
-    if (_currentUser != null) return _currentUser;
-    final auth = _auth;
-    if (auth != null && auth.currentUser != null) {
-      final profile = await getUserProfile(auth.currentUser!.uid);
-      if (profile != null) {
-        _currentUser = profile;
-        return profile;
-      }
+    if (!_isInitialAuthResolved) {
+      await _initialAuthCompleter.future;
     }
     return _currentUser;
   }
 
   /// Fetches user profile from Firestore `users/{uid}`
   Future<UserModel?> getUserProfile(String uid) async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null) {
       try {
         final doc = await firestore
@@ -98,8 +148,8 @@ class AuthRepository {
     String profession = '',
     UserDeviceInfo? deviceInfo,
   }) async {
-    final auth = _auth;
-    final firestore = _firestore;
+    final auth = activeAuth;
+    final firestore = activeFirestore;
     if (auth != null) {
       final credential = await auth.createUserWithEmailAndPassword(
         email: email.trim(),
@@ -167,7 +217,7 @@ class AuthRepository {
 
   /// Updates user device and location information in Firestore
   Future<void> updateUserDeviceInfo(String uid, UserDeviceInfo info) async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null && uid.isNotEmpty) {
       try {
         await firestore.collection(AppConfig.usersCollection).doc(uid).set({
@@ -187,11 +237,31 @@ class AuthRepository {
     bool isAdminLogin = false,
   }) async {
     final cleanEmail = email.trim().toLowerCase();
-    final auth = _auth;
-    final firestore = _firestore;
+    var auth = activeAuth;
+    final firestore = activeFirestore;
 
     if (auth == null) {
-      throw Exception('Authentication service is unavailable. Please check your network connection.');
+      if (Firebase.apps.isEmpty) {
+        try {
+          await Firebase.initializeApp(
+            options: DefaultFirebaseOptions.currentPlatform,
+          );
+        } catch (_) {
+          try {
+            await Firebase.initializeApp();
+          } catch (_) {}
+        }
+      }
+      auth = activeAuth;
+    }
+
+    if (auth == null) {
+      try {
+        FirebaseAuth.instance;
+      } catch (e) {
+        throw Exception('Firebase Authentication failed to load ($e).');
+      }
+      throw Exception('Firebase Authentication is not available.');
     }
 
     // Authenticate with Firebase Authentication.
@@ -256,7 +326,7 @@ class AuthRepository {
 
   /// Sends password reset email
   Future<void> sendPasswordResetEmail(String email) async {
-    final auth = _auth;
+    final auth = activeAuth;
     if (auth != null) {
       await auth.sendPasswordResetEmail(email: email.trim());
     }
@@ -267,7 +337,7 @@ class AuthRepository {
 
   /// Updates existing user profile in Firestore
   Future<void> updateUserProfile(UserModel user) async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null) {
       await firestore
           .collection(AppConfig.usersCollection)
@@ -286,7 +356,7 @@ class AuthRepository {
     required UserRole role,
     required AccountStatus status,
   }) async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null) {
       await firestore.collection(AppConfig.usersCollection).doc(uid).update({
         'role': role.value,
@@ -298,7 +368,7 @@ class AuthRepository {
 
   /// Super Admin: Lists all users
   Future<List<UserModel>> getAllUsers() async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null) {
       try {
         final snap = await firestore.collection(AppConfig.usersCollection).get();
@@ -322,7 +392,7 @@ class AuthRepository {
 
   /// Updates FCM registration token on user profile in Firestore
   Future<void> updateUserFcmToken(String uid, String token) async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null && uid.isNotEmpty && token.isNotEmpty) {
       try {
         await firestore.collection(AppConfig.usersCollection).doc(uid).set({
@@ -338,7 +408,7 @@ class AuthRepository {
 
   /// Permanently deletes a user document from Firestore
   Future<void> deleteUserPermanently(String uid) async {
-    final firestore = _firestore;
+    final firestore = activeFirestore;
     if (firestore != null && uid.isNotEmpty) {
       try {
         await firestore.collection(AppConfig.usersCollection).doc(uid).delete();
@@ -355,7 +425,7 @@ class AuthRepository {
     required String currentPassword,
     required String newPassword,
   }) async {
-    final auth = _auth;
+    final auth = activeAuth;
     if (auth == null || auth.currentUser == null) {
       throw Exception('User is not currently authenticated.');
     }
@@ -405,8 +475,8 @@ class AuthRepository {
   /// 4. Deletes the Firebase Authentication user account
   /// 5. Cleans up session and signs out
   Future<void> deleteUserAccount({required String password}) async {
-    final auth = _auth;
-    final firestore = _firestore;
+    final auth = activeAuth;
+    final firestore = activeFirestore;
     if (auth == null || auth.currentUser == null) {
       throw Exception('User is not currently authenticated.');
     }
@@ -483,7 +553,7 @@ class AuthRepository {
     CrashlyticsService.instance.log('User signed out');
     CrashlyticsService.instance.setUserContext(uid: null, role: null);
 
-    final auth = _auth;
+    final auth = activeAuth;
     if (auth != null) {
       try {
         await auth.signOut();

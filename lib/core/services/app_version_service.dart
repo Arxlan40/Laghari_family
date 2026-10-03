@@ -201,42 +201,122 @@ class AppVersionService {
     return null;
   }
 
-  /// Checks if an update is available by comparing local vs remote semver.
+  /// Returns true only if running as a native Android application.
+  bool get isAndroidPlatform => !kIsWeb && Platform.isAndroid;
+
+  /// Default package name used for Google Play Store lookup
+  static const String defaultAndroidPackageId = 'com.laghari.family.laghari_family';
+
+  /// Attempts to query the latest public version of the app from Google Play Store.
+  /// Non-blocking; returns null if Play Store is unreachable or not yet published.
+  Future<String?> _getPlayStoreVersion(String packageId) async {
+    try {
+      final url = Uri.parse('https://play.google.com/store/apps/details?id=$packageId&hl=en');
+      final response = await http.get(url, headers: {
+        'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      }).timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final body = response.body;
+        final match = RegExp(r'\[\[\["([0-9]+\.[0-9]+(?:\.[0-9]+)?)"\]\]').firstMatch(body);
+        if (match != null) {
+          return match.group(1);
+        }
+        final altMatch = RegExp(r'\["([0-9]+\.[0-9]+(?:\.[0-9]+)?)"\]\s*,\s*\[\[\[').firstMatch(body);
+        if (altMatch != null) {
+          return altMatch.group(1);
+        }
+      }
+    } catch (e) {
+      debugPrint('Play Store version query: $e');
+    }
+    return null;
+  }
+
+  /// Checks if an update is available by comparing local vs Play Store semver.
+  /// Strictly available on Android ONLY. Returns updateAvailable=false on all other platforms.
   Future<({bool updateAvailable, String currentVersion, RemoteVersionInfo? remoteInfo})>
       checkForUpdate() async {
-    // On web, updates are delivered automatically via web deployment; skip version checks
-    if (kIsWeb) {
+    // Strictly Android only. Must NOT check or appear on Web, iOS, macOS, Windows.
+    if (!isAndroidPlatform) {
       return (
         updateAvailable: false,
-        currentVersion: AppConfig.appVersion,
+        currentVersion: await getLocalVersion(),
         remoteInfo: null,
       );
     }
 
     try {
       final currentVersion = await getLocalVersion();
-      final remoteInfo = await getRemoteVersionInfo();
+      final localSem = SemanticVersion.parse(currentVersion);
 
-      if (remoteInfo == null || !remoteInfo.isValid) {
-        return (
-          updateAvailable: false,
-          currentVersion: currentVersion,
-          remoteInfo: null,
-        );
+      // 1. Get package ID from platform or fallback to com.laghari.family.laghari_family
+      String packageId = defaultAndroidPackageId;
+      try {
+        final info = await PackageInfo.fromPlatform();
+        if (info.packageName.isNotEmpty) {
+          packageId = info.packageName;
+        }
+      } catch (_) {}
+
+      final playStoreUrl = 'market://details?id=$packageId';
+      final playStoreWebUrl = 'https://play.google.com/store/apps/details?id=$packageId';
+
+      // 2. Query Google Play Store
+      final playStoreVersionStr = await _getPlayStoreVersion(packageId);
+
+      if (playStoreVersionStr != null && playStoreVersionStr.isNotEmpty) {
+        final playStoreSem = SemanticVersion.parse(playStoreVersionStr);
+        if (playStoreSem > localSem) {
+          return (
+            updateAvailable: true,
+            currentVersion: currentVersion,
+            remoteInfo: RemoteVersionInfo(
+              latestVersion: playStoreVersionStr,
+              downloadUrl: playStoreUrl,
+              forceUpdate: false,
+              releaseNotes: 'A new version of Laghari Family is available on Google Play Store.',
+            ),
+          );
+        } else {
+          return (
+            updateAvailable: false,
+            currentVersion: currentVersion,
+            remoteInfo: null,
+          );
+        }
       }
 
-      final localSem = SemanticVersion.parse(currentVersion);
-      final remoteSem = SemanticVersion.parse(remoteInfo.latestVersion);
-
-      final updateAvailable = remoteSem > localSem;
+      // 3. Fallback: If Play Store lookup timed out or app is in internal testing, check Firestore
+      final remoteInfo = await getRemoteVersionInfo();
+      if (remoteInfo != null && remoteInfo.isValid) {
+        final remoteSem = SemanticVersion.parse(remoteInfo.latestVersion);
+        if (remoteSem > localSem) {
+          // Ensure downloadUrl points to Google Play Store
+          final finalUrl = (remoteInfo.downloadUrl.contains('play.google.com') || remoteInfo.downloadUrl.startsWith('market://'))
+              ? remoteInfo.downloadUrl
+              : playStoreWebUrl;
+          return (
+            updateAvailable: true,
+            currentVersion: currentVersion,
+            remoteInfo: RemoteVersionInfo(
+              latestVersion: remoteInfo.latestVersion,
+              downloadUrl: finalUrl,
+              forceUpdate: remoteInfo.forceUpdate,
+              releaseNotes: remoteInfo.releaseNotes ?? 'New update available on Google Play Store.',
+            ),
+          );
+        }
+      }
 
       return (
-        updateAvailable: updateAvailable,
+        updateAvailable: false,
         currentVersion: currentVersion,
-        remoteInfo: remoteInfo,
+        remoteInfo: null,
       );
     } catch (e) {
-      debugPrint('Version check error: $e');
+      debugPrint('Android update check error: $e');
       final currentVersion = await getLocalVersion();
       return (
         updateAvailable: false,
@@ -247,9 +327,8 @@ class AppVersionService {
   }
 
   /// Performs platform-specific update action:
-  /// - Android: Downloads APK with progress callback and initiates package install via OpenFilex.
-  /// - iOS: Opens App Store/TestFlight/distribution URL via url_launcher.
-  /// - Web/Desktop: Opens download URL in browser/handler.
+  /// - Google Play Store: Opens Market intent or Web Play Store URL.
+  /// - APK fallback: Downloads APK with progress callback and initiates package install via OpenFilex.
   Stream<DownloadProgress> downloadAndInstall({
     required String downloadUrl,
   }) async* {
@@ -270,25 +349,23 @@ class AppVersionService {
       return;
     }
 
-    // iOS, Web, or non-Android platforms: open directly in browser or store
-    if (kIsWeb || !Platform.isAndroid) {
+    // Google Play Store link (market:// or play.google.com)
+    if (downloadUrl.startsWith('market://') || downloadUrl.contains('play.google.com')) {
       try {
         final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
         if (launched) {
           yield const DownloadProgress(status: DownloadStatus.completed, progress: 1.0);
-        } else {
-          yield const DownloadProgress(
-            status: DownloadStatus.error,
-            errorMessage: 'Could not launch download URL.',
-          );
+          return;
         }
-      } catch (e) {
-        yield DownloadProgress(
-          status: DownloadStatus.error,
-          errorMessage: 'Error launching update: $e',
-        );
+      } catch (_) {}
+      // Fallback: If market:// fails (e.g. emulator without Play Store app), open https web link
+      if (downloadUrl.startsWith('market://details?id=')) {
+        final pkg = downloadUrl.substring('market://details?id='.length);
+        final webUri = Uri.parse('https://play.google.com/store/apps/details?id=$pkg');
+        await launchUrl(webUri, mode: LaunchMode.externalApplication);
+        yield const DownloadProgress(status: DownloadStatus.completed, progress: 1.0);
+        return;
       }
-      return;
     }
 
     // Android APK download & install flow

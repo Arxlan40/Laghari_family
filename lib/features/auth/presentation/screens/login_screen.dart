@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
 import '../../../../core/localization/locale_provider.dart';
+import '../../../../core/services/crashlytics_service.dart';
 import '../../../../core/services/device_info_service.dart';
 import '../../../../core/theme/theme_provider.dart';
 import '../../providers/auth_provider.dart';
@@ -34,7 +35,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _handleEmailLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (_formKey.currentState?.validate() != true) return;
 
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -65,16 +66,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
           context.go('/family-tree');
         }
       }
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Login exception: $e\n$stack');
+      CrashlyticsService.instance.recordNonFatalError(e, stack, reason: 'Login failed');
       if (mounted) {
         final rawMsg = e.toString().toLowerCase();
         String displayError = 'Login failed. Please check your credentials.';
-        if (rawMsg.contains('user-not-found') || rawMsg.contains('wrong-password') || rawMsg.contains('invalid-credential')) {
+        if (rawMsg.contains('user-not-found') ||
+            rawMsg.contains('wrong-password') ||
+            rawMsg.contains('invalid-credential') ||
+            rawMsg.contains('invalid-login-credentials')) {
           displayError = 'Incorrect email or password. Please try again.';
         } else if (rawMsg.contains('network') || rawMsg.contains('offline')) {
-          displayError = 'No internet connection. Please verify your network and retry.';
+          displayError = 'Network error: Unable to connect to Firebase. Please verify your internet connection.\n($e)';
         } else if (rawMsg.contains('too-many-requests')) {
           displayError = 'Too many failed attempts. Please wait a moment or reset your password.';
+        } else {
+          displayError = '$e';
         }
 
         ScaffoldMessenger.of(context).showSnackBar(

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:laghari_family/core/config/app_config.dart';
 import 'package:laghari_family/core/services/crashlytics_service.dart';
@@ -123,7 +124,9 @@ class EditRequestRepository {
       }).toList();
     }
 
-    yield filterList(_inMemoryRequests);
+    if (_inMemoryRequests.isNotEmpty) {
+      yield filterList(_inMemoryRequests);
+    }
 
     if (_hasLiveFirestore) {
       try {
@@ -135,7 +138,11 @@ class EditRequestRepository {
           yield filterList(list);
         }
       } catch (e) {
-        yield filterList(_inMemoryRequests);
+        if (_inMemoryRequests.isNotEmpty) {
+          yield filterList(_inMemoryRequests);
+        } else {
+          rethrow;
+        }
       }
     }
   }
@@ -143,7 +150,9 @@ class EditRequestRepository {
   /// Streams requests submitted by a specific user
   Stream<List<EditRequest>> watchUserRequests(String userId) async* {
     final localList = _inMemoryRequests.where((r) => r.requestedBy == userId).toList();
-    yield localList;
+    if (localList.isNotEmpty) {
+      yield localList;
+    }
 
     if (_hasLiveFirestore) {
       try {
@@ -155,7 +164,11 @@ class EditRequestRepository {
           yield list;
         }
       } catch (e) {
-        yield localList;
+        if (localList.isNotEmpty) {
+          yield localList;
+        } else {
+          rethrow;
+        }
       }
     }
   }
@@ -169,29 +182,47 @@ class EditRequestRepository {
     String reviewerRole = 'admin',
     String? reviewerPhone,
   }) async {
+    final cleanRequestId = requestId.trim();
+    if (cleanRequestId.isEmpty) return;
+
     EditRequest? req;
 
     if (_hasLiveFirestore) {
-      final doc = await _collection.doc(requestId).get();
-      if (doc.exists && doc.data() != null) {
-        req = EditRequest.fromJson(doc.data()!, documentId: doc.id);
+      try {
+        final doc = await _collection.doc(cleanRequestId).get();
+        if (doc.exists && doc.data() != null) {
+          req = EditRequest.fromJson(doc.data()!, documentId: doc.id);
+        }
+      } catch (e) {
+        debugPrint('Firestore fetch request error: $e');
       }
-    } else {
-      final idx = _inMemoryRequests.indexWhere((r) => r.requestId == requestId);
+    }
+
+    if (req == null) {
+      final idx = _inMemoryRequests.indexWhere((r) => r.requestId == cleanRequestId);
       if (idx != -1) req = _inMemoryRequests[idx];
     }
 
-    if (req == null) throw Exception('Request not found: $requestId');
+    if (req == null) throw Exception('Request not found: $cleanRequestId');
 
-    CrashlyticsService.instance.log('Admin approval executed: requestId=$requestId');
+    // Prevent duplicate processing
+    if (req.status == RequestStatus.approved) {
+      debugPrint('Request $cleanRequestId is already approved.');
+      return;
+    }
+
+    CrashlyticsService.instance.log('Admin approval executed: requestId=$cleanRequestId');
 
     String targetMemberName = req.targetMemberName ?? '';
+    String? createdChildId;
 
-    // Apply the change to Family Member
+    // 1. Primary Operation: Apply the change to Family Member
     if (req.type == EditRequestType.addChild) {
-      final newId = req.changes['id'] ??
-          (req.changes['name_en'] as String?)?.toLowerCase().replaceAll(' ', '_') ??
-          'member_${DateTime.now().millisecondsSinceEpoch}';
+      final rawId = req.changes['id']?.toString().trim();
+      final newId = (rawId != null && rawId.isNotEmpty)
+          ? rawId
+          : 'member_${const Uuid().v4()}';
+      createdChildId = newId;
 
       targetMemberName = req.changes['name_en'] ?? targetMemberName;
 
@@ -215,8 +246,8 @@ class EditRequestRepository {
       );
 
       await _familyRepo.saveMember(newMember);
-    } else if (req.memberId != null) {
-      final existing = await _familyRepo.getMemberById(req.memberId!);
+    } else if (req.memberId != null && req.memberId!.trim().isNotEmpty) {
+      final existing = await _familyRepo.getMemberById(req.memberId!.trim());
       if (existing != null) {
         targetMemberName = existing.nameEn;
         final updatedJson = existing.toJson();
@@ -231,7 +262,7 @@ class EditRequestRepository {
       }
     }
 
-    // Update request state
+    // 2. Primary Operation: Update request state in Firestore
     final updatedReq = req.copyWith(
       status: RequestStatus.approved,
       reviewedAt: DateTime.now(),
@@ -241,51 +272,65 @@ class EditRequestRepository {
     );
 
     if (_hasLiveFirestore) {
-      await _collection.doc(requestId).update(updatedReq.toJson());
-    } else {
-      final idx = _inMemoryRequests.indexWhere((r) => r.requestId == requestId);
-      if (idx != -1) _inMemoryRequests[idx] = updatedReq;
+      await _collection.doc(cleanRequestId).update(updatedReq.toJson());
+    }
+    final idx = _inMemoryRequests.indexWhere((r) => r.requestId == cleanRequestId);
+    if (idx != -1) _inMemoryRequests[idx] = updatedReq;
+
+    // 3. Secondary Operation: Record Audit Log for Super Admin history
+    try {
+      final auditNewData = Map<String, dynamic>.from(req.newData.isNotEmpty ? req.newData : req.changes);
+      if (createdChildId != null) {
+        auditNewData['id'] = createdChildId;
+      }
+
+      await _auditLogRepo.recordLog(
+        AuditLogModel(
+          logId: const Uuid().v4(),
+          action: req.type == EditRequestType.addChild ? 'approved_add_child' : 'approved_edit',
+          performedBy: reviewerUid,
+          performedByName: reviewerName,
+          performedByRole: reviewerRole,
+          performedByPhone: reviewerPhone,
+          targetMemberId: createdChildId ?? req.memberId,
+          targetMemberName: targetMemberName.isNotEmpty ? targetMemberName : (req.memberId ?? 'Family Member'),
+          requestId: cleanRequestId,
+          requestedBy: req.requestedBy,
+          requestedByName: req.requestedByName,
+          requestedByPhone: req.requestedByPhone,
+          oldData: req.type == EditRequestType.addChild ? {'father_id': req.memberId} : req.oldData,
+          newData: auditNewData,
+          timestamp: DateTime.now(),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Secondary note: audit log error in approveRequest: $e');
     }
 
-    // 1. Record Audit Log for Super Admin history
-    await _auditLogRepo.recordLog(
-      AuditLogModel(
-        logId: const Uuid().v4(),
-        action: req.type == EditRequestType.addChild ? 'approved_add_child' : 'approved_edit',
-        performedBy: reviewerUid,
-        performedByName: reviewerName,
-        performedByRole: reviewerRole,
-        performedByPhone: reviewerPhone,
-        targetMemberId: req.memberId,
-        targetMemberName: targetMemberName.isNotEmpty ? targetMemberName : (req.memberId ?? 'Family Member'),
-        requestId: requestId,
-        requestedBy: req.requestedBy,
-        requestedByName: req.requestedByName,
-        requestedByPhone: req.requestedByPhone,
-        oldData: req.oldData,
-        newData: req.newData.isNotEmpty ? req.newData : req.changes,
-        timestamp: DateTime.now(),
-      ),
-    );
-
-    // 2. Send in-app notification to requester
-    await _notificationRepo.sendNotification(
-      NotificationModel(
-        notificationId: const Uuid().v4(),
-        userId: req.requestedBy,
-        title: req.type == EditRequestType.addChild
-            ? 'Laghari Family: Add Child Request Approved'
-            : 'Laghari Family: Edit Request Approved',
-        body: 'Your request regarding member "${targetMemberName.isNotEmpty ? targetMemberName : (req.memberId ?? 'Family Member')}" has been approved by $reviewerName.',
-        type: 'request_approved',
-        createdAt: DateTime.now(),
-        metadata: {
-          'request_id': requestId,
-          'member_id': req.memberId,
-          'user_phone': req.requestedByPhone,
-        },
-      ),
-    );
+    // 4. Secondary Operation: Send in-app notification to requester
+    try {
+      if (req.requestedBy.isNotEmpty) {
+        await _notificationRepo.sendNotification(
+          NotificationModel(
+            notificationId: const Uuid().v4(),
+            userId: req.requestedBy,
+            title: req.type == EditRequestType.addChild
+                ? 'Laghari Family: Add Child Request Approved'
+                : 'Laghari Family: Edit Request Approved',
+            body: 'Your request regarding member "${targetMemberName.isNotEmpty ? targetMemberName : (req.memberId ?? 'Family Member')}" has been approved by $reviewerName.',
+            type: 'request_approved',
+            createdAt: DateTime.now(),
+            metadata: {
+              'request_id': cleanRequestId,
+              'member_id': createdChildId ?? req.memberId,
+              'user_phone': req.requestedByPhone,
+            },
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Secondary note: notification error in approveRequest: $e');
+    }
   }
 
   /// Rejects a request with a reason, records audit history, and notifies the requester.
@@ -297,21 +342,35 @@ class EditRequestRepository {
     String? reviewerPhone,
     required String reason,
   }) async {
+    final cleanRequestId = requestId.trim();
+    if (cleanRequestId.isEmpty) return;
+
     EditRequest? req;
 
     if (_hasLiveFirestore) {
-      final doc = await _collection.doc(requestId).get();
-      if (doc.exists && doc.data() != null) {
-        req = EditRequest.fromJson(doc.data()!, documentId: doc.id);
+      try {
+        final doc = await _collection.doc(cleanRequestId).get();
+        if (doc.exists && doc.data() != null) {
+          req = EditRequest.fromJson(doc.data()!, documentId: doc.id);
+        }
+      } catch (e) {
+        debugPrint('Firestore fetch request error: $e');
       }
-    } else {
-      final idx = _inMemoryRequests.indexWhere((r) => r.requestId == requestId);
+    }
+
+    if (req == null) {
+      final idx = _inMemoryRequests.indexWhere((r) => r.requestId == cleanRequestId);
       if (idx != -1) req = _inMemoryRequests[idx];
     }
 
-    if (req == null) throw Exception('Request not found: $requestId');
+    if (req == null) throw Exception('Request not found: $cleanRequestId');
 
-    CrashlyticsService.instance.log('Admin rejected request: id=$requestId');
+    if (req.status == RequestStatus.rejected) {
+      debugPrint('Request $cleanRequestId is already rejected.');
+      return;
+    }
+
+    CrashlyticsService.instance.log('Admin rejected request: id=$cleanRequestId');
 
     final updatedReq = req.copyWith(
       status: RequestStatus.rejected,
@@ -322,51 +381,60 @@ class EditRequestRepository {
     );
 
     if (_hasLiveFirestore) {
-      await _collection.doc(requestId).update(updatedReq.toJson());
-    } else {
-      final idx = _inMemoryRequests.indexWhere((r) => r.requestId == requestId);
-      if (idx != -1) _inMemoryRequests[idx] = updatedReq;
+      await _collection.doc(cleanRequestId).update(updatedReq.toJson());
     }
+    final idx = _inMemoryRequests.indexWhere((r) => r.requestId == cleanRequestId);
+    if (idx != -1) _inMemoryRequests[idx] = updatedReq;
 
     // 1. Record in Audit Log
-    await _auditLogRepo.recordLog(
-      AuditLogModel(
-        logId: const Uuid().v4(),
-        action: 'rejected_request',
-        performedBy: reviewerUid,
-        performedByName: reviewerName,
-        performedByRole: reviewerRole,
-        performedByPhone: reviewerPhone,
-        targetMemberId: req.memberId,
-        targetMemberName: req.targetMemberName ?? req.memberId ?? 'Family Member',
-        requestId: requestId,
-        requestedBy: req.requestedBy,
-        requestedByName: req.requestedByName,
-        requestedByPhone: req.requestedByPhone,
-        oldData: {'status': 'pending'},
-        newData: {'status': 'rejected', 'reason': reason},
-        timestamp: DateTime.now(),
-      ),
-    );
+    try {
+      await _auditLogRepo.recordLog(
+        AuditLogModel(
+          logId: const Uuid().v4(),
+          action: 'rejected_request',
+          performedBy: reviewerUid,
+          performedByName: reviewerName,
+          performedByRole: reviewerRole,
+          performedByPhone: reviewerPhone,
+          targetMemberId: req.memberId,
+          targetMemberName: req.targetMemberName ?? req.memberId ?? 'Family Member',
+          requestId: cleanRequestId,
+          requestedBy: req.requestedBy,
+          requestedByName: req.requestedByName,
+          requestedByPhone: req.requestedByPhone,
+          oldData: {'status': 'pending'},
+          newData: {'status': 'rejected', 'reason': reason},
+          timestamp: DateTime.now(),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Secondary note: audit log error in rejectRequest: $e');
+    }
 
     // 2. Send rejection notification to requester
-    await _notificationRepo.sendNotification(
-      NotificationModel(
-        notificationId: const Uuid().v4(),
-        userId: req.requestedBy,
-        title: req.type == EditRequestType.addChild
-            ? 'Laghari Family: Add Child Request Rejected'
-            : 'Laghari Family: Edit Request Rejected',
-        body: 'Your request regarding member "${req.targetMemberName ?? req.memberId ?? 'Family Member'}" was rejected. Reason: $reason',
-        type: 'request_rejected',
-        createdAt: DateTime.now(),
-        metadata: {
-          'request_id': requestId,
-          'member_id': req.memberId,
-          'user_phone': req.requestedByPhone,
-        },
-      ),
-    );
+    try {
+      if (req.requestedBy.isNotEmpty) {
+        await _notificationRepo.sendNotification(
+          NotificationModel(
+            notificationId: const Uuid().v4(),
+            userId: req.requestedBy,
+            title: req.type == EditRequestType.addChild
+                ? 'Laghari Family: Add Child Request Rejected'
+                : 'Laghari Family: Edit Request Rejected',
+            body: 'Your request regarding member "${req.targetMemberName ?? req.memberId ?? 'Family Member'}" could not be approved: $reason',
+            type: 'request_rejected',
+            createdAt: DateTime.now(),
+            metadata: {
+              'request_id': cleanRequestId,
+              'member_id': req.memberId,
+              'rejection_reason': reason,
+            },
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Secondary note: notification error in rejectRequest: $e');
+    }
   }
 }
 

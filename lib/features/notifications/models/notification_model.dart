@@ -5,6 +5,7 @@ class NotificationModel {
   final String body;
   final String type;
   final bool isRead;
+  final List<String> readBy;
   final DateTime createdAt;
   final Map<String, dynamic>? metadata;
 
@@ -15,9 +16,19 @@ class NotificationModel {
     required this.body,
     required this.type,
     this.isRead = false,
+    this.readBy = const [],
     required this.createdAt,
     this.metadata,
   });
+
+  /// Checks whether this notification has been read by [targetUserId].
+  bool isReadFor(String targetUserId) {
+    if (targetUserId.isEmpty) return isRead;
+    if (userId == targetUserId) {
+      return isRead || readBy.contains(targetUserId);
+    }
+    return readBy.contains(targetUserId);
+  }
 
   factory NotificationModel.fromJson(Map<String, dynamic> json, {String? documentId}) {
     DateTime parseDate(dynamic val) {
@@ -31,6 +42,12 @@ class NotificationModel {
       return DateTime.now();
     }
 
+    final readByList = (json['read_by'] is List)
+        ? (json['read_by'] as List).map((e) => e.toString()).toList()
+        : (json['readBy'] is List)
+            ? (json['readBy'] as List).map((e) => e.toString()).toList()
+            : <String>[];
+
     return NotificationModel(
       notificationId: documentId ?? (json['notification_id'] ?? '').toString(),
       userId: (json['user_id'] ?? '').toString(),
@@ -38,6 +55,7 @@ class NotificationModel {
       body: (json['body'] ?? '').toString(),
       type: (json['type'] ?? 'general').toString(),
       isRead: json['is_read'] is bool ? json['is_read'] as bool : false,
+      readBy: readByList,
       createdAt: parseDate(json['created_at']),
       metadata: json['metadata'] is Map ? Map<String, dynamic>.from(json['metadata'] as Map) : null,
     );
@@ -51,6 +69,7 @@ class NotificationModel {
       'body': body,
       'type': type,
       'is_read': isRead,
+      'read_by': readBy,
       'created_at': createdAt.toIso8601String(),
       'metadata': metadata,
     };
@@ -63,6 +82,7 @@ class NotificationModel {
     String? body,
     String? type,
     bool? isRead,
+    List<String>? readBy,
     DateTime? createdAt,
     Map<String, dynamic>? metadata,
   }) {
@@ -73,6 +93,7 @@ class NotificationModel {
       body: body ?? this.body,
       type: type ?? this.type,
       isRead: isRead ?? this.isRead,
+      readBy: readBy ?? this.readBy,
       createdAt: createdAt ?? this.createdAt,
       metadata: metadata ?? this.metadata,
     );

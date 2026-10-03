@@ -14,6 +14,7 @@ import '../../../storage/services/supabase_storage_service.dart';
 import '../../models/family_member.dart';
 import '../../providers/family_tree_providers.dart';
 import '../../repositories/family_repository.dart';
+import 'delete_member_dialog.dart';
 import 'edit_name_dialog.dart';
 import 'member_avatar_widget.dart';
 
@@ -378,74 +379,9 @@ class MemberPreviewSheet extends ConsumerWidget {
                 // Admin Portal Direct: Delete Member
                 OutlinedButton.icon(
                   onPressed: () async {
-                    final confirm = await showDialog<bool>(
-                      context: context,
-                      builder: (ctx) => AlertDialog(
-                        title: Row(
-                          children: [
-                            const Icon(Icons.warning_amber_rounded, color: AppColors.danger),
-                            const SizedBox(width: 8),
-                            Text(isUrdu ? 'رکن حذف کریں؟' : 'Delete Member?'),
-                          ],
-                        ),
-                        content: Text(
-                          isUrdu
-                              ? 'کیا آپ واقعی ${member.localizedName(loc.locale.languageCode)} کو شجرہ سے حذف کرنا چاہتے ہیں؟'
-                              : 'Are you sure you want to permanently delete ${member.localizedName(loc.locale.languageCode)} from the family tree?',
-                        ),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(ctx, false),
-                            child: Text(loc.translate('cancel')),
-                          ),
-                          ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-                            onPressed: () => Navigator.pop(ctx, true),
-                            child: Text(loc.translate('delete'), style: const TextStyle(color: Colors.white)),
-                          ),
-                        ],
-                      ),
-                    );
-
-                    if (confirm == true && context.mounted) {
-                      final messenger = ScaffoldMessenger.of(context);
+                    final deleted = await DeleteMemberDialog.show(context, ref, member);
+                    if (deleted && context.mounted) {
                       Navigator.pop(context);
-                      try {
-                        await ref.read(familyRepositoryProvider).deleteMember(member.id);
-
-                        await ref.read(auditLogRepositoryProvider).recordLog(
-                          AuditLogModel(
-                            logId: const Uuid().v4(),
-                            action: 'direct_delete_member',
-                            performedBy: currentUser?.uid ?? 'admin',
-                            performedByName: currentUser?.name ?? 'Admin',
-                            performedByRole: currentUser?.role.value ?? 'admin',
-                            performedByPhone: currentUser?.phone,
-                            targetMemberId: member.id,
-                            targetMemberName: member.nameEn,
-                            oldData: member.toJson(),
-                            timestamp: DateTime.now(),
-                          ),
-                        );
-
-                        messenger.showSnackBar(
-                          SnackBar(
-                            backgroundColor: AppColors.danger,
-                            content: Text(
-                              isUrdu
-                                  ? 'رکن کو شجرہ سے مستقل طور پر حذف کر دیا گیا۔'
-                                  : 'Member deleted permanently from family tree.',
-                            ),
-                          ),
-                        );
-                      } catch (e) {
-                        messenger.showSnackBar(
-                          SnackBar(
-                            backgroundColor: AppColors.danger,
-                            content: Text('Failed to delete member: $e'),
-                          ),
-                        );
-                      }
                     }
                   },
                   icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.danger),

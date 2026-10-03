@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/localization/app_localizations.dart';
+import '../../../family_tree/providers/family_tree_providers.dart';
 import '../../../notifications/presentation/widgets/notification_badge_icon.dart';
 import '../../models/audit_log_model.dart';
 import '../../repositories/audit_log_repository.dart';
@@ -82,14 +84,51 @@ class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
           // Audit Logs List
           Expanded(
             child: auditLogsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator(color: AppColors.emerald)),
+              loading: () => Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(color: AppColors.emerald),
+                    const SizedBox(height: 16),
+                    Text(
+                      isUrdu ? 'تاریخچہ لوڈ ہو رہا ہے...' : 'Loading History...',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textLightSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               error: (err, stack) => Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'Error loading audit logs: $err',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: AppColors.danger),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 54, color: AppColors.danger),
+                      const SizedBox(height: 14),
+                      Text(
+                        isUrdu ? 'تاریخچہ لوڈ نہیں ہو سکا۔' : 'Unable to load history.',
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        isUrdu ? 'براہ کرم دوبارہ کوشش کریں۔' : 'Please try again.',
+                        style: const TextStyle(fontSize: 13, color: AppColors.textLightSecondary),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.emerald,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => ref.invalidate(auditLogsStreamProvider),
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: Text(isUrdu ? 'دوبارہ کوشش کریں' : 'Retry'),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -365,29 +404,46 @@ class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
                       );
                     }
 
+                    final isOldImage = _isBase64ImageData(key, oldVal);
+                    final isNewImage = _isBase64ImageData(key, newVal);
+                    final keyLabel = _formatKeyLabel(key, isUrdu);
+                    final oldDisplay = _formatAuditValue(key, oldVal, isUrdu);
+                    final newDisplay = _formatAuditValue(key, newVal, isUrdu);
+
                     return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 3),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (isOldImage || isNewImage)
+                            const Padding(
+                              padding: EdgeInsets.only(right: 4, top: 1),
+                              child: Icon(Icons.image_outlined, size: 14, color: AppColors.goldLight),
+                            ),
                           Text(
-                            '$key: ',
+                            '$keyLabel: ',
                             style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.goldLight),
                           ),
                           if (oldVal != null) ...[
-                            Text(
-                              '$oldVal',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AppColors.danger,
-                                decoration: TextDecoration.lineThrough,
+                            Flexible(
+                              child: Text(
+                                oldDisplay,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.danger,
+                                  decoration: TextDecoration.lineThrough,
+                                ),
                               ),
                             ),
                             const Text(' → ', style: TextStyle(fontSize: 12)),
                           ],
                           Expanded(
                             child: Text(
-                              '$newVal',
+                              newDisplay,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppColors.emeraldLight,
@@ -401,11 +457,98 @@ class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
                   }).toList(),
                 ),
               ),
+            ] else if (log.action.contains('delete')) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.danger.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  isUrdu
+                      ? 'رکن اور ان کی متعلقہ تمام اولادیں شجرہ نسب سے مستقل طور پر خارج کر دی گئیں۔'
+                      : 'Member and all descendants permanently deleted from family tree.',
+                  style: const TextStyle(fontSize: 12, color: AppColors.danger, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ],
+
+            // "View Profile" action button
+            if (log.action != 'broadcast_notification' &&
+                ((log.targetMemberId != null && log.targetMemberId!.isNotEmpty) ||
+                 (log.newData['id'] != null && log.newData['id'].toString().isNotEmpty) ||
+                 (log.newData['member_id'] != null && log.newData['member_id'].toString().isNotEmpty))) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.emeraldLight,
+                    side: BorderSide(color: AppColors.emerald.withValues(alpha: 0.5)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(vertical: 9),
+                  ),
+                  icon: const Icon(Icons.person_outline, size: 16),
+                  label: Text(
+                    isUrdu ? 'پروفائل دیکھیں' : 'View Profile',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () => _navigateToMemberProfile(log, isUrdu),
+                ),
+              ),
             ],
           ],
         ),
       ),
     );
+  }
+
+  void _navigateToMemberProfile(AuditLogModel log, bool isUrdu) {
+    String? targetId;
+    if (log.action.contains('add_child')) {
+      final childId = log.newData['id']?.toString() ?? log.newData['member_id']?.toString();
+      if (childId != null && childId.isNotEmpty) {
+        targetId = childId;
+      }
+    }
+    targetId ??= log.targetMemberId;
+
+    if (targetId == null || targetId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.danger,
+          content: Text(
+            isUrdu
+                ? 'اس لاگ ریکارڈ میں رکن کی شناخت دستیاب نہیں ہے۔'
+                : 'Member identifier is not available for this record.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final membersMap = ref.read(familyMembersMapProvider);
+    final member = membersMap[targetId];
+
+    if (member == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          backgroundColor: AppColors.danger,
+          content: Text(
+            isUrdu
+                ? 'یہ خاندانی رکن اب شجرہ نسب میں دستیاب نہیں ہے۔'
+                : 'This family member is no longer available in the family tree.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Navigate to Member Profile screen
+    context.push('/member/${member.id}');
   }
 
   String _monthName(int month, bool isUrdu) {
@@ -415,5 +558,77 @@ class _AuditLogScreenState extends ConsumerState<AuditLogScreen> {
       return isUrdu ? ur[month] : en[month];
     }
     return '';
+  }
+
+  bool _isBase64ImageData(String key, dynamic val) {
+    if (val == null) return false;
+    final str = val.toString().trim();
+    if (str.isEmpty) return false;
+
+    final lowerKey = key.toLowerCase();
+    final isImageKey = lowerKey.contains('image') ||
+        lowerKey.contains('photo') ||
+        lowerKey.contains('avatar') ||
+        lowerKey.contains('picture');
+
+    if (str.startsWith('data:image/')) return true;
+    if (str.startsWith('iVBORw0KGgo') ||
+        str.startsWith('/9j/') ||
+        str.startsWith('R0lGOD') ||
+        str.startsWith('UklGR')) {
+      return true;
+    }
+
+    if (isImageKey && str.length > 100 && !str.startsWith('http')) {
+      return true;
+    }
+
+    if (str.length > 300 && !str.contains(' ') && !str.startsWith('http')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  String _formatAuditValue(String key, dynamic val, bool isUrdu) {
+    if (val == null) return isUrdu ? 'خالی' : 'None';
+    if (_isBase64ImageData(key, val)) {
+      return isUrdu ? '[تصویر کا ڈیٹا موجود ہے]' : '[Image data available]';
+    }
+    final str = val.toString();
+    if (str.length > 100) {
+      return '${str.substring(0, 97)}...';
+    }
+    return str;
+  }
+
+  String _formatKeyLabel(String key, bool isUrdu) {
+    switch (key.toLowerCase()) {
+      case 'name_en':
+      case 'nameen':
+        return isUrdu ? 'نام (انگریزی)' : 'Name (EN)';
+      case 'name_ur':
+      case 'nameur':
+        return isUrdu ? 'نام (اردو)' : 'Name (UR)';
+      case 'father_name':
+      case 'fathername':
+        return isUrdu ? 'والد کا نام' : 'Father';
+      case 'photo_url':
+      case 'photourl':
+      case 'profile_photo':
+      case 'profile_image':
+        return isUrdu ? 'پروفائل تصویر' : 'Profile Image';
+      case 'generation':
+        return isUrdu ? 'پشت' : 'Generation';
+      case 'birth_year':
+        return isUrdu ? 'پیدائش' : 'Birth Year';
+      case 'death_year':
+        return isUrdu ? 'وفات' : 'Death Year';
+      case 'is_alive':
+      case 'alive_status':
+        return isUrdu ? 'حیات/وفات' : 'Status';
+      default:
+        return key.replaceAll('_', ' ');
+    }
   }
 }

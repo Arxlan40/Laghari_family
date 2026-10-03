@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -574,31 +575,32 @@ class _AboutScreenState extends ConsumerState<AboutScreen> {
               const SizedBox(height: 24),
 
               // ==========================================
-              // Check for Updates Button
+              // Check for Updates Button (Android Only)
               // ==========================================
-              Center(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    side: const BorderSide(color: AppColors.emerald, width: 1.2),
-                  ),
-                  onPressed: _isCheckingUpdate ? null : _checkForUpdateManual,
-                  icon: _isCheckingUpdate
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.emerald),
-                        )
-                      : const Icon(Icons.system_update_alt_rounded, color: AppColors.emerald, size: 18),
-                  label: Text(
-                    isUrdu ? 'نئی اپڈیٹ چیک کریں' : 'Check for Updates',
-                    style: const TextStyle(color: AppColors.emerald, fontWeight: FontWeight.bold),
+              if (!kIsWeb && Platform.isAndroid) ...[
+                Center(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      side: const BorderSide(color: AppColors.emerald, width: 1.2),
+                    ),
+                    onPressed: _isCheckingUpdate ? null : _checkForUpdateManual,
+                    icon: _isCheckingUpdate
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.emerald),
+                          )
+                        : const Icon(Icons.system_update_alt_rounded, color: AppColors.emerald, size: 18),
+                    label: Text(
+                      isUrdu ? 'نئی اپڈیٹ چیک کریں' : 'Check for Updates',
+                      style: const TextStyle(color: AppColors.emerald, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 24),
+                const SizedBox(height: 24),
+              ],
 
               // Footer copyright
               Center(

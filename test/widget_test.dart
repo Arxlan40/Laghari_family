@@ -12,7 +12,7 @@ void main() {
 
     // Initial frame loads and wait for startup checks timer
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 1500));
+    await tester.pump(const Duration(seconds: 5));
     expect(find.byType(LaghariFamilyApp), findsOneWidget);
   });
 }

@@ -9,12 +9,22 @@ import '../../../edit_requests/models/edit_request.dart';
 import '../../../edit_requests/repositories/edit_request_repository.dart';
 import '../../../family_tree/models/family_member.dart';
 import '../../../family_tree/providers/family_tree_providers.dart';
+import '../../../family_tree/repositories/family_repository.dart';
 
-class PendingRequestsScreen extends ConsumerWidget {
+class PendingRequestsScreen extends ConsumerStatefulWidget {
   const PendingRequestsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PendingRequestsScreen> createState() => _PendingRequestsScreenState();
+}
+
+class _PendingRequestsScreenState extends ConsumerState<PendingRequestsScreen> {
+  final Set<String> _processingRequestIds = {};
+  final Map<String, String> _processingActions = {};
+
+  @override
+  Widget build(BuildContext context) {
+    final ref = this.ref;
     final loc = AppLocalizations.of(context);
     final pendingAsync = ref.watch(pendingRequestsStreamProvider);
     final currentUser = ref.watch(currentUserProvider);
@@ -25,8 +35,50 @@ class PendingRequestsScreen extends ConsumerWidget {
         title: Text(loc.translate('pending_requests')),
       ),
       body: pendingAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.emerald)),
-        error: (err, stack) => Center(child: Text('Error loading requests: $err')),
+        loading: () => Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(color: AppColors.emerald),
+              const SizedBox(height: 16),
+              Text(
+                loc.isUrdu ? 'درخواستیں لوڈ ہو رہی ہیں...' : 'Loading Requests...',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: AppColors.textLightSecondary),
+              ),
+            ],
+          ),
+        ),
+        error: (err, stack) => Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.error_outline, size: 54, color: AppColors.danger),
+                const SizedBox(height: 14),
+                Text(
+                  loc.isUrdu ? 'درخواستیں لوڈ نہیں ہو سکیں۔' : 'Unable to load requests.',
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  loc.isUrdu ? 'براہ کرم دوبارہ کوشش کریں۔' : 'Please try again.',
+                  style: const TextStyle(fontSize: 13, color: AppColors.textLightSecondary),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.emerald,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () => ref.invalidate(pendingRequestsStreamProvider),
+                  icon: const Icon(Icons.refresh, size: 18),
+                  label: Text(loc.isUrdu ? 'دوبارہ کوشش کریں' : 'Retry'),
+                ),
+              ],
+            ),
+          ),
+        ),
         data: (requests) {
           if (requests.isEmpty) {
             return Center(
@@ -75,6 +127,10 @@ class PendingRequestsScreen extends ConsumerWidget {
             itemBuilder: (context, index) {
               final req = filteredRequests[index];
               final targetMember = req.memberId != null ? membersMap[req.memberId] : null;
+              final isProcessing = _processingRequestIds.contains(req.requestId);
+              final processingAction = _processingActions[req.requestId];
+              final isRejecting = isProcessing && processingAction == 'reject';
+              final isApproving = isProcessing && processingAction == 'approve';
 
               return Card(
                 margin: const EdgeInsets.only(bottom: 20),
@@ -218,59 +274,106 @@ class PendingRequestsScreen extends ConsumerWidget {
                               side: const BorderSide(color: AppColors.danger),
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
-                            onPressed: () async {
-                              final reasonCtrl = TextEditingController();
-                              final confirmed = await showDialog<bool>(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: Text(loc.translate('reject_request')),
-                                  content: Column(
+                            onPressed: isProcessing
+                                ? null
+                                : () async {
+                                    final reasonCtrl = TextEditingController();
+                                    final confirmed = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        title: Text(loc.translate('reject_request')),
+                                        content: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(loc.translate('rejection_reason_optional')),
+                                            const SizedBox(height: 12),
+                                            TextField(
+                                              controller: reasonCtrl,
+                                              decoration: InputDecoration(
+                                                hintText: loc.isUrdu
+                                                    ? 'مثلاً: معلومات کی تصدیق نہیں ہو سکی'
+                                                    : 'e.g. Inaccurate information',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        actions: [
+                                          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(loc.translate('cancel'))),
+                                          ElevatedButton(
+                                            style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            child: Text(loc.translate('reject')),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+
+                                    if (confirmed == true && context.mounted) {
+                                      final messenger = ScaffoldMessenger.of(context);
+                                      final editRepo = ref.read(editRequestRepositoryProvider);
+                                      final adminUid = currentUser?.uid ?? 'admin';
+                                      final adminName = currentUser?.name ?? 'Admin';
+                                      final adminRole = currentUser?.role.value ?? 'admin';
+                                      final adminPhone = currentUser?.phone;
+                                      final reason = reasonCtrl.text.trim().isNotEmpty
+                                          ? reasonCtrl.text.trim()
+                                          : 'Request did not meet verification criteria.';
+
+                                      setState(() {
+                                        _processingRequestIds.add(req.requestId);
+                                        _processingActions[req.requestId] = 'reject';
+                                      });
+                                      try {
+                                        await editRepo.rejectRequest(
+                                          requestId: req.requestId,
+                                          reviewerUid: adminUid,
+                                          reviewerName: adminName,
+                                          reviewerRole: adminRole,
+                                          reviewerPhone: adminPhone,
+                                          reason: reason,
+                                        );
+                                        if (mounted) {
+                                          ref.invalidate(pendingRequestsStreamProvider);
+                                          messenger.showSnackBar(
+                                            SnackBar(
+                                              backgroundColor: AppColors.danger,
+                                              content: Text(loc.translate('rejected')),
+                                            ),
+                                          );
+                                        }
+                                      } catch (e) {
+                                        if (mounted) {
+                                          messenger.showSnackBar(
+                                            SnackBar(
+                                              backgroundColor: AppColors.danger,
+                                              content: Text('Failed to reject request: $e'),
+                                            ),
+                                          );
+                                        }
+                                      } finally {
+                                        if (mounted) {
+                                          setState(() {
+                                            _processingRequestIds.remove(req.requestId);
+                                            _processingActions.remove(req.requestId);
+                                          });
+                                        }
+                                      }
+                                    }
+                                  },
+                            child: isRejecting
+                                ? Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Text(loc.translate('rejection_reason_optional')),
-                                      const SizedBox(height: 12),
-                                      TextField(
-                                        controller: reasonCtrl,
-                                        decoration: InputDecoration(
-                                          hintText: loc.isUrdu
-                                              ? 'مثلاً: معلومات کی تصدیق نہیں ہو سکی'
-                                              : 'e.g. Inaccurate information',
-                                        ),
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.danger),
                                       ),
+                                      const SizedBox(width: 8),
+                                      Text(loc.isUrdu ? 'مسترد ہو رہا ہے...' : 'Rejecting...'),
                                     ],
-                                  ),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(loc.translate('cancel'))),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(backgroundColor: AppColors.danger),
-                                      onPressed: () => Navigator.pop(ctx, true),
-                                      child: Text(loc.translate('reject')),
-                                    ),
-                                  ],
-                                ),
-                              );
-
-                              if (confirmed == true) {
-                                await ref.read(editRequestRepositoryProvider).rejectRequest(
-                                      requestId: req.requestId,
-                                      reviewerUid: currentUser?.uid ?? 'admin',
-                                      reviewerName: currentUser?.name ?? 'Admin',
-                                      reviewerRole: currentUser?.role.value ?? 'admin',
-                                      reason: reasonCtrl.text.trim().isNotEmpty
-                                          ? reasonCtrl.text.trim()
-                                          : 'Request did not meet verification criteria.',
-                                    );
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      backgroundColor: AppColors.danger,
-                                      content: Text(loc.translate('rejected')),
-                                    ),
-                                  );
-                                }
-                              }
-                            },
-                            child: Text(loc.translate('reject')),
+                                  )
+                                : Text(loc.translate('reject')),
                           ),
                           const SizedBox(width: 12),
 
@@ -280,23 +383,71 @@ class PendingRequestsScreen extends ConsumerWidget {
                               backgroundColor: AppColors.emerald,
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
-                            onPressed: () async {
-                              await ref.read(editRequestRepositoryProvider).approveRequest(
-                                    requestId: req.requestId,
-                                    reviewerUid: currentUser?.uid ?? 'admin',
-                                    reviewerName: currentUser?.name ?? 'Admin',
-                                    reviewerRole: currentUser?.role.value ?? 'admin',
-                                  );
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    backgroundColor: AppColors.emerald,
-                                    content: Text(loc.translate('approved')),
-                                  ),
-                                );
-                              }
-                            },
-                            child: Text(loc.translate('approve')),
+                            onPressed: isProcessing
+                                ? null
+                                : () async {
+                                    final messenger = ScaffoldMessenger.of(context);
+                                    final editRepo = ref.read(editRequestRepositoryProvider);
+                                    final adminUid = currentUser?.uid ?? 'admin';
+                                    final adminName = currentUser?.name ?? 'Admin';
+                                    final adminRole = currentUser?.role.value ?? 'admin';
+                                    final adminPhone = currentUser?.phone;
+
+                                    setState(() {
+                                      _processingRequestIds.add(req.requestId);
+                                      _processingActions[req.requestId] = 'approve';
+                                    });
+
+                                    try {
+                                      await editRepo.approveRequest(
+                                        requestId: req.requestId,
+                                        reviewerUid: adminUid,
+                                        reviewerName: adminName,
+                                        reviewerRole: adminRole,
+                                        reviewerPhone: adminPhone,
+                                      );
+                                      if (mounted) {
+                                        ref.invalidate(pendingRequestsStreamProvider);
+                                        ref.invalidate(familyMembersStreamProvider);
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            backgroundColor: AppColors.emerald,
+                                            content: Text(loc.translate('approved')),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      if (mounted) {
+                                        messenger.showSnackBar(
+                                          SnackBar(
+                                            backgroundColor: AppColors.danger,
+                                            content: Text('Failed to approve request: $e'),
+                                          ),
+                                        );
+                                      }
+                                    } finally {
+                                      if (mounted) {
+                                        setState(() {
+                                          _processingRequestIds.remove(req.requestId);
+                                          _processingActions.remove(req.requestId);
+                                        });
+                                      }
+                                    }
+                                  },
+                            child: isApproving
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(loc.isUrdu ? 'منظور ہو رہا ہے...' : 'Approving...'),
+                                    ],
+                                  )
+                                : Text(loc.translate('approve')),
                           ),
                         ],
                       ),
