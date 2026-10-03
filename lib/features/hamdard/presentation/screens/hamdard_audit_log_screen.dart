@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/constants/app_colors.dart';
@@ -18,10 +20,72 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
   final DateFormat _dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
   String _filterType = 'all';
 
+  /// Recursively sanitizes data maps/lists for display:
+  /// - Converts Timestamp and DateTime to ISO strings
+  /// - Omits massive Base64 strings to prevent canvas freeze/crash
+  /// - Handles null and complex nested structures safely
+  static dynamic _sanitizeForDisplay(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value.toIso8601String();
+    if (value is Timestamp) return value.toDate().toIso8601String();
+    if (value is Map) {
+      final sanitized = <String, dynamic>{};
+      for (final entry in value.entries) {
+        sanitized[entry.key.toString()] = _sanitizeForDisplay(entry.value);
+      }
+      return sanitized;
+    }
+    if (value is List) {
+      return value.map(_sanitizeForDisplay).toList();
+    }
+    if (value is String) {
+      // Omit large base64 image data (e.g. data:image/... or huge encoded strings)
+      if (value.startsWith('data:image') ||
+          (value.length > 250 && !value.contains(' ') && RegExp(r'^[A-Za-z0-9+/=]+$').hasMatch(value))) {
+        return '[Base64 image data omitted - ${value.length} bytes]';
+      }
+      return value;
+    }
+    return value.toString();
+  }
+
+  static String _formatJsonSafely(Map<String, dynamic>? data) {
+    if (data == null || data.isEmpty) return 'No data recorded';
+    try {
+      final sanitized = _sanitizeForDisplay(data);
+      const encoder = JsonEncoder.withIndent('  ');
+      return encoder.convert(sanitized);
+    } catch (e) {
+      try {
+        final buffer = StringBuffer();
+        data.forEach((k, v) {
+          final cleanVal = (v is String && v.length > 150) ? '[Data omitted]' : v.toString();
+          buffer.writeln('$k: $cleanVal');
+        });
+        return buffer.toString();
+      } catch (_) {
+        return 'Data preview unavailable';
+      }
+    }
+  }
+
   void _showLogDetailsDialog(HamdardAuditLog log) {
     final loc = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    const encoder = JsonEncoder.withIndent('  ');
+
+    final actionTitle = log.action.isNotEmpty
+        ? log.action.replaceAll('_', ' ').toUpperCase()
+        : 'FINANCIAL ACTION';
+
+    final performedByText = log.performedByName.isNotEmpty
+        ? (log.performedBy.isNotEmpty ? '${log.performedByName} (${log.performedBy})' : log.performedByName)
+        : (log.performedBy.isNotEmpty ? log.performedBy : 'Unknown');
+
+    final recordTypeText = log.recordType.isNotEmpty ? log.recordType.toUpperCase() : 'NOT SPECIFIED';
+    final recordIdText = log.recordId.isNotEmpty ? log.recordId : 'Record ID not available';
+
+    final oldDataFormatted = _formatJsonSafely(log.oldData);
+    final newDataFormatted = _formatJsonSafely(log.newData);
 
     showDialog(
       context: context,
@@ -34,7 +98,7 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                log.action.replaceAll('_', ' ').toUpperCase(),
+                actionTitle,
                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
               ),
             ),
@@ -47,15 +111,34 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildDetailRow('Timestamp', _dateFormat.format(log.timestamp)),
-                _buildDetailRow('Performed By', '${log.performedByName} (${log.performedBy})'),
-                _buildDetailRow('Record Type', log.recordType.toUpperCase()),
-                _buildDetailRow('Record ID', log.recordId),
+                _buildDetailRow('Performed By', performedByText),
+                _buildDetailRow('Record Type', recordTypeText),
+                _buildDetailRow('Record ID', recordIdText),
                 if (log.details != null && log.details!.isNotEmpty)
                   _buildDetailRow('Details', log.details!),
-                const Divider(height: 16),
-                if (log.oldData != null) ...[
-                  const Text('PREVIOUS DATA (OLD):',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.danger)),
+                const Divider(height: 20),
+
+                // Previous Data
+                if (log.oldData != null && log.oldData!.isNotEmpty) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'PREVIOUS DATA (OLD):',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.danger),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy, size: 14),
+                        tooltip: 'Copy Previous Data',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: oldDataFormatted));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Previous data copied to clipboard')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Container(
                     width: double.infinity,
@@ -63,17 +146,37 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
                     decoration: BoxDecoration(
                       color: isDark ? AppColors.darkSurface : AppColors.lightCard,
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
                     ),
-                    child: Text(
-                      encoder.convert(log.oldData),
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+                    child: SelectableText(
+                      oldDataFormatted,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 10.5),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                 ],
-                if (log.newData != null) ...[
-                  const Text('NEW / UPDATED DATA:',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.emerald)),
+
+                // New / Updated Data
+                if (log.newData != null && log.newData!.isNotEmpty) ...[
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'NEW / UPDATED DATA:',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.emerald),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy, size: 14),
+                        tooltip: 'Copy New Data',
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: newDataFormatted));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Updated data copied to clipboard')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Container(
                     width: double.infinity,
@@ -81,10 +184,11 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
                     decoration: BoxDecoration(
                       color: isDark ? AppColors.darkSurface : AppColors.lightCard,
                       borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.emerald.withValues(alpha: 0.3)),
                     ),
-                    child: Text(
-                      encoder.convert(log.newData),
-                      style: const TextStyle(fontFamily: 'monospace', fontSize: 10),
+                    child: SelectableText(
+                      newDataFormatted,
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 10.5),
                     ),
                   ),
                 ],
@@ -133,7 +237,7 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
       ),
       body: Column(
         children: [
-          // Filter Chips (All, Donation, Spending, Role, Settings)
+          // Filter Chips (All, Donation, Spending, Person, Role, Settings)
           Padding(
             padding: const EdgeInsets.all(16),
             child: SingleChildScrollView(
@@ -146,6 +250,8 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
                   const SizedBox(width: 8),
                   _buildTypeChip('spending', isUrdu ? 'اخراجات' : 'Spending'),
                   const SizedBox(width: 8),
+                  _buildTypeChip('person', isUrdu ? 'افراد' : 'People'),
+                  const SizedBox(width: 8),
                   _buildTypeChip('role', isUrdu ? 'کردار' : 'Roles'),
                   const SizedBox(width: 8),
                   _buildTypeChip('settings', isUrdu ? 'میزان' : 'Settings'),
@@ -156,8 +262,41 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
 
           Expanded(
             child: auditLogsState.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (err, _) => Center(child: Text('Error: $err')),
+              loading: () => const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(color: AppColors.gold),
+                    SizedBox(height: 12),
+                    Text('Loading audit trail...'),
+                  ],
+                ),
+              ),
+              error: (err, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: AppColors.danger),
+                      const SizedBox(height: 12),
+                      Text(
+                        isUrdu ? 'آڈٹ ریکارڈ لوڈ کرنے میں خرابی' : 'Unable to load audit logs.',
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(err.toString(), style: const TextStyle(fontSize: 11, color: Colors.grey), textAlign: TextAlign.center),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(backgroundColor: AppColors.gold, foregroundColor: Colors.black87),
+                        onPressed: () => ref.invalidate(hamdardAuditLogsStreamProvider),
+                        icon: const Icon(Icons.refresh, size: 16),
+                        label: Text(isUrdu ? 'دوبارہ کوشش کریں' : 'Retry'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
               data: (logs) {
                 final filtered = logs.where((l) {
                   if (_filterType == 'all') return true;
@@ -190,19 +329,24 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
                     Color actionColor = AppColors.info;
                     IconData actionIcon = Icons.info_outline;
 
-                    if (log.action.startsWith('created')) {
+                    if (log.action.startsWith('created') || log.action.startsWith('added')) {
                       actionColor = AppColors.emerald;
                       actionIcon = Icons.add_circle_outline;
-                    } else if (log.action.startsWith('edited')) {
+                    } else if (log.action.startsWith('edited') || log.action.startsWith('updated') || log.action.contains('link')) {
                       actionColor = AppColors.gold;
                       actionIcon = Icons.edit_note;
-                    } else if (log.action.startsWith('deleted')) {
+                    } else if (log.action.startsWith('deleted') || log.action.startsWith('removed')) {
                       actionColor = AppColors.danger;
                       actionIcon = Icons.delete_outline;
                     } else if (log.action.contains('admin')) {
                       actionColor = Colors.purple;
                       actionIcon = Icons.admin_panel_settings_outlined;
                     }
+
+                    final actorName = log.performedByName.isNotEmpty ? log.performedByName : 'Unknown Actor';
+                    final titleText = (log.details != null && log.details!.isNotEmpty)
+                        ? log.details!
+                        : log.action.replaceAll('_', ' ');
 
                     return Card(
                       color: isDark ? AppColors.darkSurface : Colors.white,
@@ -215,13 +359,13 @@ class _HamdardAuditLogScreenState extends ConsumerState<HamdardAuditLogScreen> {
                           child: Icon(actionIcon, color: actionColor, size: 20),
                         ),
                         title: Text(
-                          log.details ?? log.action.replaceAll('_', ' '),
+                          titleText,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
                         ),
                         subtitle: Text(
-                          '${log.performedByName} • ${_dateFormat.format(log.timestamp)}',
+                          '$actorName • ${_dateFormat.format(log.timestamp)}',
                           style: const TextStyle(fontSize: 11),
                         ),
                         trailing: const Icon(Icons.chevron_right, size: 18),

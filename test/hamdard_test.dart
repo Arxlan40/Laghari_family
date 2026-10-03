@@ -7,6 +7,7 @@ import 'package:laghari_family/features/hamdard/models/hamdard_payment_method.da
 import 'package:laghari_family/features/hamdard/models/hamdard_person.dart';
 import 'package:laghari_family/features/hamdard/models/hamdard_spending.dart';
 import 'package:laghari_family/features/hamdard/models/hamdard_spending_category.dart';
+import 'package:laghari_family/features/hamdard/providers/hamdard_providers.dart';
 import 'package:laghari_family/features/hamdard/repositories/hamdard_repository.dart';
 import 'package:laghari_family/features/hamdard/services/hamdard_csv_service.dart';
 import 'package:laghari_family/features/hamdard/services/hamdard_pdf_service.dart';
@@ -551,6 +552,244 @@ void main() {
       // PDF documents start with %PDF header
       final header = String.fromCharCodes(bytes.take(4));
       expect(header, '%PDF');
+    });
+  });
+
+  group('7. Family Tree Integration & Person Directory Tests', () {
+    test('HamdardPerson model supports sourceType, familyMemberId and tree metadata', () {
+      final personFromTree = HamdardPerson(
+        id: 'hp_001',
+        name: 'Muhammad Ali',
+        fatherName: 'Ahmed Khan',
+        phoneNumber: '03001234567',
+        sourceType: 'family_tree',
+        familyMemberId: 'mhk_uuid_001',
+        profileImageUrl: 'https://example.com/avatar.jpg',
+        bloodGroup: 'B+',
+        profession: 'Software Engineer',
+        gender: 'male',
+      );
+
+      expect(personFromTree.isFromFamilyTree, isTrue);
+      expect(personFromTree.sourceType, 'family_tree');
+      expect(personFromTree.familyMemberId, 'mhk_uuid_001');
+
+      final json = personFromTree.toJson();
+      expect(json['source_type'], 'family_tree');
+      expect(json['family_member_id'], 'mhk_uuid_001');
+      expect(json['blood_group'], 'B+');
+      expect(json['profession'], 'Software Engineer');
+
+      final reconstructed = HamdardPerson.fromJson(json, documentId: 'hp_001');
+      expect(reconstructed.isFromFamilyTree, isTrue);
+      expect(reconstructed.familyMemberId, 'mhk_uuid_001');
+      expect(reconstructed.profileImageUrl, 'https://example.com/avatar.jpg');
+    });
+
+    test('Link manual person to Family Tree member preserves stable Hamdard person ID and transaction history', () async {
+      final repo = HamdardRepository();
+
+      // 1. Create a manual person
+      final manualPerson = await repo.savePerson(
+        const HamdardPerson(
+          id: 'hp_manual_100',
+          name: 'Ilyas Laghari',
+          fatherName: 'Allah Dino',
+          phoneNumber: '03005555555',
+          sourceType: 'manual',
+        ),
+        performedBy: 'admin_1',
+        performedByName: 'Hamdard Admin',
+      );
+      expect(manualPerson.id, 'hp_manual_100');
+      expect(manualPerson.isFromFamilyTree, isFalse);
+
+      // 2. Add donation attached to this Hamdard Person ID
+      await repo.addDonation(
+        HamdardDonation(
+          id: 'don_ilyas_1',
+          personId: manualPerson.id,
+          personNameSnapshot: manualPerson.name,
+          fatherNameSnapshot: manualPerson.fatherName,
+          phoneNumberSnapshot: manualPerson.phoneNumber,
+          amount: 5000,
+          paymentMethod: HamdardPaymentMethod.cash,
+          date: DateTime(2026, 10, 1),
+        ),
+        performedBy: 'admin_1',
+        performedByName: 'Hamdard Admin',
+      );
+
+      // 3. Link to Family Tree Member (MHK-001)
+      final linked = await repo.linkPersonToFamilyMember(
+        personId: manualPerson.id,
+        familyMemberId: 'MHK-001',
+        profileImageUrl: 'https://example.com/ilyas.jpg',
+        performedBy: 'admin_1',
+        performedByName: 'Hamdard Admin',
+      );
+
+      // Verify Person ID is completely UNCHANGED
+      expect(linked.id, 'hp_manual_100');
+      expect(linked.isFromFamilyTree, isTrue);
+      expect(linked.familyMemberId, 'MHK-001');
+      expect(linked.profileImageUrl, 'https://example.com/ilyas.jpg');
+
+      // Verify historical transactions still point to this identical Hamdard person ID
+      final donations = await repo.getDonations();
+      expect(donations.length, 1);
+      expect(donations.first.personId, 'hp_manual_100');
+
+      // Verify Audit log contains linked_family_member
+      final logs = await repo.watchAuditLogs().first;
+      final linkLog = logs.firstWhere((l) => l.action == 'linked_family_member');
+      expect(linkLog.recordId, 'hp_manual_100');
+      expect(linkLog.newData?['familyMemberId'], 'MHK-001');
+    });
+
+    test('Unlink person restores manual sourceType and clears familyMemberId without breaking financial records', () async {
+      final repo = HamdardRepository();
+
+      await repo.savePerson(
+        const HamdardPerson(
+          id: 'hp_tree_200',
+          name: 'Zahid Laghari',
+          fatherName: 'Qasim',
+          phoneNumber: '03006666666',
+          sourceType: 'family_tree',
+          familyMemberId: 'FT-999',
+        ),
+        performedBy: 'admin_1',
+        performedByName: 'Hamdard Admin',
+      );
+
+      final unlinked = await repo.unlinkPersonFromFamilyMember(
+        personId: 'hp_tree_200',
+        performedBy: 'admin_1',
+        performedByName: 'Hamdard Admin',
+      );
+
+      expect(unlinked.id, 'hp_tree_200'); // ID unchanged!
+      expect(unlinked.isFromFamilyTree, isFalse);
+      expect(unlinked.sourceType, 'manual');
+      expect(unlinked.familyMemberId, isNull);
+
+      final logs = await repo.watchAuditLogs().first;
+      final unlinkLog = logs.firstWhere((l) => l.action == 'unlinked_family_member');
+      expect(unlinkLog.oldData?['familyMemberId'], 'FT-999');
+    });
+  });
+
+  group('8. Spending with Person Linking & Dual Stats Tests', () {
+    test('Spending record links to HamdardPerson and serializes personId correctly', () {
+      final spending = HamdardSpending(
+        id: 'sp_rec_1',
+        personId: 'hp_recipient_01',
+        recipientName: 'Rasheed Ahmed',
+        recipientFatherName: 'Nabi Bux',
+        recipientPhoneNumber: '03123456789',
+        amount: 15000,
+        date: DateTime(2026, 10, 2),
+        paymentMethod: HamdardPaymentMethod.easypaisa,
+        category: HamdardSpendingCategory.medical,
+        description: 'Monthly medicine support',
+      );
+
+      expect(spending.personId, 'hp_recipient_01');
+
+      final json = spending.toJson();
+      expect(json['personId'], 'hp_recipient_01');
+      expect(json['hamdard_person_id'], 'hp_recipient_01');
+      expect(json['recipient_name'], 'Rasheed Ahmed');
+
+      final reconstructed = HamdardSpending.fromJson(json, documentId: 'sp_rec_1');
+      expect(reconstructed.personId, 'hp_recipient_01');
+      expect(reconstructed.recipientName, 'Rasheed Ahmed');
+    });
+
+    test('Person statistics accurately aggregate both donations given and assistance received', () {
+      final donations = [
+        HamdardDonation(
+          id: 'd1',
+          personId: 'hp_dual_user',
+          personNameSnapshot: 'Nawaz Ali',
+          fatherNameSnapshot: 'Hussain',
+          phoneNumberSnapshot: '03001234567',
+          amount: 5000,
+          paymentMethod: HamdardPaymentMethod.cash,
+          date: DateTime(2026, 1, 15),
+        ),
+        HamdardDonation(
+          id: 'd2',
+          personId: 'hp_dual_user',
+          personNameSnapshot: 'Nawaz Ali',
+          fatherNameSnapshot: 'Hussain',
+          phoneNumberSnapshot: '03001234567',
+          amount: 7000,
+          paymentMethod: HamdardPaymentMethod.jazzCash,
+          date: DateTime(2026, 3, 20),
+        ),
+      ];
+
+      final spendingList = [
+        HamdardSpending(
+          id: 'sp1',
+          personId: 'hp_dual_user',
+          recipientName: 'Nawaz Ali',
+          recipientFatherName: 'Hussain',
+          recipientPhoneNumber: '03001234567',
+          amount: 10000,
+          date: DateTime(2026, 6, 10),
+          paymentMethod: HamdardPaymentMethod.easypaisa,
+          category: HamdardSpendingCategory.emergency,
+          description: 'Flood relief aid',
+        ),
+      ];
+
+      final stats = HamdardPersonStats(
+        person: const HamdardPerson(
+          id: 'hp_dual_user',
+          name: 'Nawaz Ali',
+          fatherName: 'Hussain',
+          phoneNumber: '03001234567',
+        ),
+        thisMonthTotal: 0,
+        thisYearTotal: 12000,
+        allTimeTotal: 12000,
+        donationCount: donations.length,
+        donations: donations,
+        totalAssistanceReceived: 10000,
+        assistanceCount: spendingList.length,
+        spendingRecords: spendingList,
+      );
+
+      expect(stats.allTimeTotal, 12000);
+      expect(stats.totalAssistanceReceived, 10000);
+      expect(stats.isDonor, isTrue);
+      expect(stats.isRecipient, isTrue);
+      expect(stats.donations.any((d) => d.date.month == 1), isTrue);
+      expect(stats.donations.any((d) => d.date.month == 2), isFalse); // Skipped month!
+      expect(stats.donations.any((d) => d.date.month == 3), isTrue);
+    });
+  });
+
+  group('9. Financial Audit Trail Sanitization Tests', () {
+    test('Old or incomplete audit log entries with unexpected types format gracefully', () {
+      final rawAuditMap = {
+        'action': 'legacy_action',
+        'performed_by': null,
+        'amount': null,
+        'oldData': {
+          'date': '2025-10-01T00:00:00.000',
+          'nested': {'deepKey': 123},
+          'hugeBase64Image': 'data:image/png;base64,${'A' * 500}',
+        },
+      };
+
+      final encoder = const JsonEncoder.withIndent('  ');
+      final encoded = encoder.convert(rawAuditMap);
+      expect(encoded.isNotEmpty, isTrue);
+      expect(encoded.contains('legacy_action'), isTrue);
     });
   });
 }

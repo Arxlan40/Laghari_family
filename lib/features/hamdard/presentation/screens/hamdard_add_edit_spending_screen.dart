@@ -11,11 +11,20 @@ import '../../models/hamdard_spending.dart';
 import '../../models/hamdard_spending_category.dart';
 import '../../providers/hamdard_providers.dart';
 import '../../repositories/hamdard_repository.dart';
+import '../widgets/hamdard_person_picker_modal.dart';
+import '../widgets/hamdard_user_avatar.dart';
 
 class HamdardAddEditSpendingScreen extends ConsumerStatefulWidget {
   final HamdardSpending? existingSpending;
+  final HamdardSpending? spendingToEdit;
+  final HamdardPerson? preselectedPerson;
 
-  const HamdardAddEditSpendingScreen({super.key, this.existingSpending});
+  const HamdardAddEditSpendingScreen({
+    super.key,
+    this.existingSpending,
+    this.spendingToEdit,
+    this.preselectedPerson,
+  });
 
   @override
   ConsumerState<HamdardAddEditSpendingScreen> createState() => _HamdardAddEditSpendingScreenState();
@@ -23,6 +32,8 @@ class HamdardAddEditSpendingScreen extends ConsumerStatefulWidget {
 
 class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpendingScreen> {
   final _formKey = GlobalKey<FormState>();
+
+  HamdardPerson? _selectedPerson;
 
   final _recipientNameCtrl = TextEditingController();
   final _recipientFatherCtrl = TextEditingController();
@@ -40,8 +51,8 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
   @override
   void initState() {
     super.initState();
-    if (widget.existingSpending != null) {
-      final s = widget.existingSpending!;
+    final s = widget.existingSpending ?? widget.spendingToEdit;
+    if (s != null) {
       _recipientNameCtrl.text = s.recipientName;
       _recipientFatherCtrl.text = s.recipientFatherName;
       _recipientPhoneCtrl.text = s.recipientPhoneNumber;
@@ -51,6 +62,19 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
       _paymentMethod = s.paymentMethod;
       _category = s.category;
       _selectedDate = s.date;
+      if (s.personId != null && s.personId!.isNotEmpty) {
+        _selectedPerson = HamdardPerson(
+          id: s.personId!,
+          name: s.recipientName,
+          fatherName: s.recipientFatherName,
+          phoneNumber: s.recipientPhoneNumber,
+        );
+      }
+    } else if (widget.preselectedPerson != null) {
+      _selectedPerson = widget.preselectedPerson;
+      _recipientNameCtrl.text = widget.preselectedPerson!.name;
+      _recipientFatherCtrl.text = widget.preselectedPerson!.fatherName;
+      _recipientPhoneCtrl.text = widget.preselectedPerson!.phoneNumber;
     }
   }
 
@@ -77,31 +101,94 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
     }
   }
 
-  Future<void> _submitSpending() async {
-    if (!_formKey.currentState!.validate()) return;
+  Future<void> _pickRecipientFromDirectory() async {
+    final loc = AppLocalizations.of(context);
+    final person = await HamdardPersonPickerModal.show(
+      context,
+      title: loc.isUrdu ? 'مستحق / وصول کنندہ منتخب کریں' : 'Select Recipient',
+    );
+    if (person != null) {
+      setState(() {
+        _selectedPerson = person;
+        _recipientNameCtrl.text = person.name;
+        _recipientFatherCtrl.text = person.fatherName;
+        _recipientPhoneCtrl.text = person.phoneNumber;
+      });
+    }
+  }
 
+  void _showValidationSnackbar(String message) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.danger,
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
+  Future<void> _submitSpending() async {
     final loc = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUser = ref.read(currentUserProvider);
 
     if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.isUrdu ? 'براہ کرم لاگ ان کریں' : 'Please log in to continue.')),
-      );
+      _showValidationSnackbar(loc.isUrdu ? 'براہ کرم لاگ ان کریں' : 'Please log in to continue.');
       return;
     }
 
-    final parsedAmount = int.tryParse(_amountCtrl.text.replaceAll(',', '').trim()) ?? 0;
-    if (parsedAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.isUrdu ? 'براہ کرم درست رقم درج کریں' : 'Please enter a valid amount greater than 0.')),
-      );
-      return;
-    }
-
+    // 1. Validation: Recipient Name
     final recipientName = _recipientNameCtrl.text.trim();
+    if (recipientName.isEmpty) {
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم وصول کنندہ کا نام درج کریں' : 'Please enter the recipient name.',
+      );
+      return;
+    }
+
+    // 2. Validation: Father Name
     final recipientFather = _recipientFatherCtrl.text.trim();
-    final recipientPhone = HamdardPerson.normalizePhone(_recipientPhoneCtrl.text.trim());
+    if (recipientFather.isEmpty) {
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم والد کا نام درج کریں' : "Please enter the father's name.",
+      );
+      return;
+    }
+
+    // 3. Validation: Phone
+    final rawPhone = _recipientPhoneCtrl.text.trim();
+    if (rawPhone.isEmpty || !HamdardPerson.isValidPakistaniPhone(rawPhone)) {
+      _showValidationSnackbar(
+        loc.isUrdu
+            ? 'براہ کرم درست 11 ہندسوں کا موبائل نمبر درج کریں (03XXXXXXXXX)'
+            : 'Please enter a valid 11-digit mobile number (03XXXXXXXXX).',
+      );
+      return;
+    }
+    final recipientPhone = HamdardPerson.normalizePhone(rawPhone);
+
+    // 4. Validation: Amount
+    final rawAmountText = _amountCtrl.text.replaceAll(',', '').trim();
+    if (rawAmountText.isEmpty) {
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم اخراجات کی رقم درج کریں' : 'Please enter the spending amount.',
+      );
+      return;
+    }
+
+    final parsedAmount = int.tryParse(rawAmountText) ?? 0;
+    if (parsedAmount <= 0) {
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم درست رقم درج کریں' : 'Please enter a valid amount greater than 0.',
+      );
+      return;
+    }
+
+    // 5. Validate Form
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
 
     // Review dialog before finalizing
     final confirm = await showDialog<bool>(
@@ -149,10 +236,32 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
 
     try {
       final repo = ref.read(hamdardRepositoryProvider);
-      final isEditing = widget.existingSpending != null;
+
+      // Determine personId: if person was selected, use their id.
+      // If entered manually or changed, save/find them in the repository so they have a stable hamdardPersonId
+      String personIdToUse = _selectedPerson?.id ?? '';
+      if (personIdToUse.isEmpty) {
+        final newPerson = HamdardPerson(
+          id: '',
+          name: recipientName,
+          fatherName: recipientFather,
+          phoneNumber: recipientPhone,
+          sourceType: 'manual',
+        );
+        final savedPerson = await repo.savePerson(
+          newPerson,
+          performedBy: currentUser.uid,
+          performedByName: currentUser.name,
+        );
+        personIdToUse = savedPerson.id;
+      }
+
+      final currentExisting = widget.existingSpending ?? widget.spendingToEdit;
+      final isEditing = currentExisting != null;
 
       if (isEditing) {
-        final newSpending = widget.existingSpending!.copyWith(
+        final newSpending = currentExisting.copyWith(
+          personId: personIdToUse,
           recipientName: recipientName,
           recipientFatherName: recipientFather,
           recipientPhoneNumber: recipientPhone,
@@ -165,13 +274,14 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
         );
         await repo.editSpending(
           newSpending,
-          widget.existingSpending!,
+          currentExisting,
           performedBy: currentUser.uid,
           performedByName: currentUser.name,
         );
       } else {
         final newSpending = HamdardSpending(
           id: '',
+          personId: personIdToUse,
           recipientName: recipientName,
           recipientFatherName: recipientFather,
           recipientPhoneNumber: recipientPhone,
@@ -195,9 +305,7 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(backgroundColor: AppColors.danger, content: Text('Error saving spending: $e')),
-        );
+        _showValidationSnackbar('Error saving spending: $e');
       }
     }
   }
@@ -207,7 +315,7 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
     final loc = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isUrdu = loc.isUrdu;
-    final isEditing = widget.existingSpending != null;
+    final isEditing = (widget.existingSpending ?? widget.spendingToEdit) != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -231,25 +339,125 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        isUrdu ? 'وصول کنندہ / مستحق کی معلومات' : 'Recipient Information',
-                        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            isUrdu ? 'وصول کنندہ / مستحق کی معلومات' : 'Recipient Information',
+                            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                          ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.emerald,
+                              side: const BorderSide(color: AppColors.emerald),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.people_alt, size: 16),
+                            label: Text(
+                              _selectedPerson != null
+                                  ? (isUrdu ? 'تبدیل کریں' : 'Change')
+                                  : (isUrdu ? 'ڈائریکٹری سے منتخب کریں' : 'Select Recipient'),
+                              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: _pickRecipientFromDirectory,
+                          ),
+                        ],
                       ),
                       const SizedBox(height: 12),
+
+                      if (_selectedPerson != null) ...[
+                        Container(
+                          margin: const EdgeInsets.only(bottom: 14),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: AppColors.emerald.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: AppColors.emerald.withValues(alpha: 0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              HamdardUserAvatar(
+                                imageUrl: _selectedPerson!.profileImageUrl,
+                                name: _selectedPerson!.name,
+                                radius: 22,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            _selectedPerson!.name,
+                                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: _selectedPerson!.isFromFamilyTree
+                                                ? AppColors.emerald.withValues(alpha: 0.15)
+                                                : Colors.grey.withValues(alpha: 0.15),
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            _selectedPerson!.isFromFamilyTree
+                                                ? (isUrdu ? 'شجرہ' : 'Tree')
+                                                : (isUrdu ? 'دستی' : 'Manual'),
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                              color: _selectedPerson!.isFromFamilyTree
+                                                  ? AppColors.emerald
+                                                  : Colors.grey,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      '${isUrdu ? "والد" : "Father"}: ${_selectedPerson!.fatherName.isNotEmpty ? _selectedPerson!.fatherName : "N/A"} • ${_selectedPerson!.phoneNumber}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.clear, size: 18),
+                                tooltip: 'Clear selection',
+                                onPressed: () {
+                                  setState(() {
+                                    _selectedPerson = null;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
                       TextFormField(
                         controller: _recipientNameCtrl,
                         decoration: InputDecoration(
-                          labelText: isUrdu ? 'نام' : 'Recipient Name',
+                          labelText: isUrdu ? 'مکمل نام *' : 'Recipient Name *',
                           prefixIcon: const Icon(Icons.person),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
-                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Name is required' : null,
+                        validator: (v) => (v == null || v.trim().isEmpty) ? 'Recipient name is required' : null,
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _recipientFatherCtrl,
                         decoration: InputDecoration(
-                          labelText: isUrdu ? 'والد کا نام' : "Father's Name",
+                          labelText: isUrdu ? 'والد کا نام *' : "Father's Name *",
                           prefixIcon: const Icon(Icons.person_outline),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -260,7 +468,7 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
                         controller: _recipientPhoneCtrl,
                         keyboardType: TextInputType.phone,
                         decoration: InputDecoration(
-                          labelText: isUrdu ? 'موبائل نمبر (03XXXXXXXXX)' : 'Phone Number (03XXXXXXXXX)',
+                          labelText: isUrdu ? 'موبائل نمبر (03XXXXXXXXX) *' : 'Phone Number (03XXXXXXXXX) *',
                           prefixIcon: const Icon(Icons.phone),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                         ),
@@ -298,7 +506,7 @@ class _HamdardAddEditSpendingScreenState extends ConsumerState<HamdardAddEditSpe
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.danger),
                         decoration: InputDecoration(
-                          labelText: isUrdu ? 'رقم (روپے)' : 'Amount (PKR)',
+                          labelText: isUrdu ? 'رقم (روپے) *' : 'Amount (PKR) *',
                           prefixText: 'Rs. ',
                           prefixStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                           prefixIcon: const Icon(Icons.currency_rupee),

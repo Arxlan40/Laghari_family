@@ -4,9 +4,10 @@ import 'hamdard_spending_category.dart';
 
 class HamdardSpending {
   final String id;
-  final String recipientName;
-  final String recipientFatherName;
-  final String recipientPhoneNumber;
+  final String? personId; // Optional link to HamdardPerson (hamdardPersonId)
+  final String recipientName; // Snapshot recipient name
+  final String recipientFatherName; // Snapshot father name
+  final String recipientPhoneNumber; // Snapshot phone
   final int amount; // Stored as integer PKR
   final DateTime date;
   final HamdardPaymentMethod paymentMethod;
@@ -22,6 +23,7 @@ class HamdardSpending {
 
   const HamdardSpending({
     required this.id,
+    this.personId,
     required this.recipientName,
     required this.recipientFatherName,
     required this.recipientPhoneNumber,
@@ -63,8 +65,15 @@ class HamdardSpending {
       parsedAmount = int.tryParse(rawAmount.replaceAll(',', '').trim()) ?? 0;
     }
 
+    final pid = (json['personId'] ??
+            json['person_id'] ??
+            json['hamdardPersonId'] ??
+            json['hamdard_person_id'])
+        ?.toString();
+
     return HamdardSpending(
       id: documentId ?? (json['id'] ?? '').toString(),
+      personId: (pid != null && pid.trim().isNotEmpty) ? pid.trim() : null,
       recipientName: (json['recipientName'] ?? json['recipient_name'] ?? '').toString(),
       recipientFatherName: (json['recipientFatherName'] ?? json['recipient_father_name'] ?? '').toString(),
       recipientPhoneNumber: (json['recipientPhoneNumber'] ?? json['recipient_phone_number'] ?? '').toString(),
@@ -86,6 +95,12 @@ class HamdardSpending {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      if (personId != null && personId!.isNotEmpty) ...{
+        'person_id': personId,
+        'personId': personId,
+        'hamdard_person_id': personId,
+        'hamdardPersonId': personId,
+      },
       'recipient_name': recipientName,
       'recipientName': recipientName,
       'recipient_father_name': recipientFatherName,
@@ -110,6 +125,8 @@ class HamdardSpending {
 
   HamdardSpending copyWith({
     String? id,
+    String? personId,
+    bool clearPersonId = false,
     String? recipientName,
     String? recipientFatherName,
     String? recipientPhoneNumber,
@@ -128,6 +145,7 @@ class HamdardSpending {
   }) {
     return HamdardSpending(
       id: id ?? this.id,
+      personId: clearPersonId ? null : (personId ?? this.personId),
       recipientName: recipientName ?? this.recipientName,
       recipientFatherName: recipientFatherName ?? this.recipientFatherName,
       recipientPhoneNumber: recipientPhoneNumber ?? this.recipientPhoneNumber,

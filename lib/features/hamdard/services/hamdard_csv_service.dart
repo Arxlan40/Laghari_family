@@ -1,7 +1,7 @@
-import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
+import '../../../../core/utils/file_download_helper.dart';
 import '../models/hamdard_donation.dart';
 import '../models/hamdard_spending.dart';
 
@@ -98,8 +98,10 @@ class HamdardCsvService {
     return buffer.toString();
   }
 
-  /// Exports CSV to device storage and triggers share sheet
-  static Future<File> exportAndShareCsv({
+  /// Exports CSV cross-platform:
+  /// On Web: downloads in memory via browser download
+  /// On Mobile: saves to temp directory and opens native share sheet
+  static Future<String> exportAndShareCsv({
     required List<HamdardDonation> donations,
     required List<HamdardSpending> spending,
     String? filenamePrefix,
@@ -109,15 +111,14 @@ class HamdardCsvService {
     final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
     final filename = '${prefix}_$timestamp.csv';
 
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$filename');
-    await file.writeAsString(csvContent);
-
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      text: 'Hamdard Laghari Financial Report ($filename)',
+    final bytes = Uint8List.fromList(utf8.encode(csvContent));
+    await FileDownloadHelper.downloadOrShare(
+      bytes: bytes,
+      filename: filename,
+      mimeType: 'text/csv;charset=utf-8',
+      shareText: 'Hamdard Laghari Financial Report ($filename)',
     );
 
-    return file;
+    return filename;
   }
 }

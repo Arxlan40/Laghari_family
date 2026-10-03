@@ -1,10 +1,9 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:share_plus/share_plus.dart';
+import 'package:printing/printing.dart';
+import '../../../../core/utils/file_download_helper.dart';
 import '../models/hamdard_donation.dart';
 import '../models/hamdard_financial_summary.dart';
 import '../models/hamdard_payment_method.dart';
@@ -358,8 +357,8 @@ class HamdardPdfService {
     );
   }
 
-  /// Exports PDF to file and presents standard share sheet
-  static Future<File> exportAndSharePdf({
+  /// Exports PDF cross-platform (Web browser download / Mobile native share)
+  static Future<String> exportAndSharePdf({
     required String periodTitle,
     required HamdardFinancialSummary summary,
     required List<HamdardDonation> donations,
@@ -376,15 +375,39 @@ class HamdardPdfService {
 
     final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
     final filename = 'hamdard_report_$timestamp.pdf';
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/$filename');
-    await file.writeAsBytes(pdfBytes);
 
-    await Share.shareXFiles(
-      [XFile(file.path)],
-      text: 'Hamdard Laghari Financial Report ($filename)',
+    await FileDownloadHelper.downloadOrShare(
+      bytes: pdfBytes,
+      filename: filename,
+      mimeType: 'application/pdf',
+      shareText: 'Hamdard Laghari Financial Report ($filename)',
     );
 
-    return file;
+    return filename;
+  }
+
+  /// Opens native print/PDF preview dialog across Web and mobile
+  static Future<void> previewOrPrintPdf({
+    required String periodTitle,
+    required HamdardFinancialSummary summary,
+    required List<HamdardDonation> donations,
+    required List<HamdardSpending> spending,
+    required List<HamdardPersonStats> donorStats,
+  }) async {
+    final pdfBytes = await generatePdfBytes(
+      periodTitle: periodTitle,
+      summary: summary,
+      donations: donations,
+      spending: spending,
+      donorStats: donorStats,
+    );
+
+    final timestamp = DateFormat('yyyyMMdd_HHmmss').format(DateTime.now());
+    final filename = 'hamdard_report_$timestamp.pdf';
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => pdfBytes,
+      name: filename,
+    );
   }
 }

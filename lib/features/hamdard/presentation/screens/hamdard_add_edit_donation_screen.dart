@@ -10,12 +10,21 @@ import '../../models/hamdard_payment_method.dart';
 import '../../models/hamdard_person.dart';
 import '../../providers/hamdard_providers.dart';
 import '../../repositories/hamdard_repository.dart';
+import '../widgets/hamdard_person_picker_modal.dart';
+import '../widgets/hamdard_user_avatar.dart';
 import 'hamdard_receipt_screen.dart';
 
 class HamdardAddEditDonationScreen extends ConsumerStatefulWidget {
   final HamdardDonation? existingDonation;
+  final HamdardDonation? donationToEdit;
+  final HamdardPerson? preselectedPerson;
 
-  const HamdardAddEditDonationScreen({super.key, this.existingDonation});
+  const HamdardAddEditDonationScreen({
+    super.key,
+    this.existingDonation,
+    this.donationToEdit,
+    this.preselectedPerson,
+  });
 
   @override
   ConsumerState<HamdardAddEditDonationScreen> createState() => _HamdardAddEditDonationScreenState();
@@ -43,8 +52,8 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
   @override
   void initState() {
     super.initState();
-    if (widget.existingDonation != null) {
-      final d = widget.existingDonation!;
+    final d = widget.existingDonation ?? widget.donationToEdit;
+    if (d != null) {
       _amountCtrl.text = d.amount.toString();
       _descriptionCtrl.text = d.description;
       _noteCtrl.text = d.note;
@@ -56,6 +65,8 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
         fatherName: d.fatherNameSnapshot,
         phoneNumber: d.phoneNumberSnapshot,
       );
+    } else if (widget.preselectedPerson != null) {
+      _selectedPerson = widget.preselectedPerson;
     }
   }
 
@@ -82,120 +93,97 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
     }
   }
 
-  void _showSelectPersonDialog(List<HamdardPerson> people) {
+  Future<void> _pickDonorFromDirectory() async {
     final loc = AppLocalizations.of(context);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    String search = '';
+    final person = await HamdardPersonPickerModal.show(
+      context,
+      title: loc.isUrdu ? 'عطیہ دہندہ منتخب کریں' : 'Select Donor',
+    );
+    if (person != null) {
+      setState(() {
+        _selectedPerson = person;
+        _isCreatingNewPerson = false;
+      });
+    }
+  }
 
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          final filtered = people.where((p) {
-            final query = search.toLowerCase().trim();
-            if (query.isEmpty) return true;
-            return p.name.toLowerCase().contains(query) ||
-                p.fatherName.toLowerCase().contains(query) ||
-                p.phoneNumber.contains(query);
-          }).toList();
-
-          return AlertDialog(
-            backgroundColor: isDark ? AppColors.darkCard : Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            title: Text(loc.isUrdu ? 'عطیہ دہندہ منتخب کریں' : 'Select Donor'),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: 420,
-              child: Column(
-                children: [
-                  TextField(
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search),
-                      hintText: loc.isUrdu ? 'نام، والد، یا فون سے تلاش کریں' : 'Search name, father, or phone...',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    onChanged: (val) => setDialogState(() => search = val),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: filtered.isEmpty
-                        ? Center(
-                            child: Text(
-                              loc.isUrdu ? 'کوئی شخص نہیں ملا' : 'No person found',
-                              style: const TextStyle(color: Colors.grey),
-                            ),
-                          )
-                        : ListView.separated(
-                            itemCount: filtered.length,
-                            separatorBuilder: (ctx, i) => const Divider(height: 1),
-                            itemBuilder: (ctx, i) {
-                              final p = filtered[i];
-                              return ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: AppColors.emerald.withValues(alpha: 0.15),
-                                  child: Text(
-                                    p.name.isNotEmpty ? p.name[0].toUpperCase() : '?',
-                                    style: const TextStyle(color: AppColors.emerald, fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                                title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                subtitle: Text(
-                                  'Father: ${p.fatherName.isNotEmpty ? p.fatherName : "N/A"} • ${p.phoneNumber}',
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                onTap: () {
-                                  setState(() {
-                                    _selectedPerson = p;
-                                    _isCreatingNewPerson = false;
-                                  });
-                                  Navigator.pop(ctx);
-                                },
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(loc.translate('cancel')),
-              ),
-            ],
-          );
-        },
+  void _showValidationSnackbar(String message) {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: AppColors.danger,
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.w600)),
+        duration: const Duration(seconds: 4),
       ),
     );
   }
 
   Future<void> _submitDonation() async {
-    if (!_formKey.currentState!.validate()) return;
-
     final loc = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final currentUser = ref.read(currentUserProvider);
 
     if (currentUser == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.isUrdu ? 'براہ کرم لاگ ان کریں' : 'Please log in to continue.')),
-      );
+      _showValidationSnackbar(loc.isUrdu ? 'براہ کرم لاگ ان کریں' : 'Please log in to continue.');
       return;
     }
 
+    // 1. Validation: Person selection or new person entry
     if (!_isCreatingNewPerson && _selectedPerson == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.isUrdu ? 'براہ کرم عطیہ دہندہ منتخب کریں' : 'Please select or add a donor.')),
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم عطیہ دہندہ منتخب کریں' : 'Please select or add a donor.',
       );
       return;
     }
 
-    final parsedAmount = int.tryParse(_amountCtrl.text.replaceAll(',', '').trim()) ?? 0;
-    if (parsedAmount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(loc.isUrdu ? 'براہ کرم درست رقم درج کریں' : 'Please enter a valid amount greater than 0.')),
+    if (_isCreatingNewPerson) {
+      final name = _newPersonNameCtrl.text.trim();
+      final father = _newPersonFatherCtrl.text.trim();
+      final phone = _newPersonPhoneCtrl.text.trim();
+
+      if (name.isEmpty) {
+        _showValidationSnackbar(
+          loc.isUrdu ? 'براہ کرم عطیہ دہندہ کا نام درج کریں' : 'Please enter the donor name.',
+        );
+        return;
+      }
+
+      if (father.isEmpty) {
+        _showValidationSnackbar(
+          loc.isUrdu ? 'براہ کرم والد کا نام درج کریں' : "Please enter the father's name.",
+        );
+        return;
+      }
+
+      if (phone.isEmpty || !HamdardPerson.isValidPakistaniPhone(phone)) {
+        _showValidationSnackbar(
+          loc.isUrdu
+              ? 'براہ کرم درست 11 ہندسوں کا موبائل نمبر درج کریں (03XXXXXXXXX)'
+              : 'Please enter a valid 11-digit mobile number (e.g. 03001234567).',
+        );
+        return;
+      }
+    }
+
+    // 2. Validation: Amount
+    final rawAmountText = _amountCtrl.text.replaceAll(',', '').trim();
+    if (rawAmountText.isEmpty) {
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم رقم درج کریں' : 'Please enter the donation amount.',
       );
+      return;
+    }
+
+    final parsedAmount = int.tryParse(rawAmountText) ?? 0;
+    if (parsedAmount <= 0) {
+      _showValidationSnackbar(
+        loc.isUrdu ? 'براہ کرم درست رقم درج کریں' : 'Please enter a valid amount greater than 0.',
+      );
+      return;
+    }
+
+    // 3. Form fields validation
+    if (!_formKey.currentState!.validate()) {
       return;
     }
 
@@ -252,12 +240,12 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
 
       HamdardPerson personToUse;
       if (_isCreatingNewPerson) {
-        // Save new person first
         final newPerson = HamdardPerson(
           id: '',
           name: donorName,
           fatherName: donorFather,
           phoneNumber: donorPhone,
+          sourceType: 'manual',
         );
         personToUse = await repo.savePerson(
           newPerson,
@@ -268,11 +256,12 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
         personToUse = _selectedPerson!;
       }
 
-      final isEditing = widget.existingDonation != null;
+      final currentExisting = widget.existingDonation ?? widget.donationToEdit;
+      final isEditing = currentExisting != null;
       HamdardDonation savedDonation;
 
       if (isEditing) {
-        final newDonation = widget.existingDonation!.copyWith(
+        final newDonation = currentExisting.copyWith(
           personId: personToUse.id,
           personNameSnapshot: personToUse.name,
           fatherNameSnapshot: personToUse.fatherName,
@@ -285,7 +274,7 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
         );
         savedDonation = await repo.editDonation(
           newDonation,
-          widget.existingDonation!,
+          currentExisting,
           performedBy: currentUser.uid,
           performedByName: currentUser.name,
         );
@@ -319,12 +308,7 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.danger,
-            content: Text('Error saving donation: $e'),
-          ),
-        );
+        _showValidationSnackbar('Error saving donation: $e');
       }
     }
   }
@@ -334,8 +318,7 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
     final loc = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final isUrdu = loc.isUrdu;
-    final isEditing = widget.existingDonation != null;
-    final people = ref.watch(hamdardPeopleStreamProvider).valueOrNull ?? [];
+    final isEditing = (widget.existingDonation ?? widget.donationToEdit) != null;
 
     return Scaffold(
       appBar: AppBar(
@@ -363,14 +346,14 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            isUrdu ? 'عطیہ دہندہ' : 'Donor Information',
+                            isUrdu ? 'عطیہ دہندہ کی معلومات' : 'Donor Information',
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                           ),
                           TextButton.icon(
                             icon: Icon(_isCreatingNewPerson ? Icons.list : Icons.person_add, size: 18),
                             label: Text(_isCreatingNewPerson
-                                ? (isUrdu ? 'موجودہ شخص منتخب کریں' : 'Select Existing')
-                                : (isUrdu ? 'نیا شخص شامل کریں' : 'Add New Person')),
+                                ? (isUrdu ? 'ڈائریکٹری سے منتخب کریں' : 'Select Existing')
+                                : (isUrdu ? 'نیا فرد دستی درج کریں' : 'Add New Person')),
                             onPressed: () {
                               setState(() {
                                 _isCreatingNewPerson = !_isCreatingNewPerson;
@@ -394,21 +377,49 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                             ),
                             child: Row(
                               children: [
-                                CircleAvatar(
-                                  backgroundColor: AppColors.emerald,
-                                  child: Text(
-                                    _selectedPerson!.name.isNotEmpty ? _selectedPerson!.name[0].toUpperCase() : '?',
-                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                                  ),
+                                HamdardUserAvatar(
+                                  imageUrl: _selectedPerson!.profileImageUrl,
+                                  name: _selectedPerson!.name,
+                                  radius: 24,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(_selectedPerson!.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                      Row(
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              _selectedPerson!.name,
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: _selectedPerson!.isFromFamilyTree
+                                                  ? AppColors.emerald.withValues(alpha: 0.15)
+                                                  : Colors.grey.withValues(alpha: 0.15),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              _selectedPerson!.isFromFamilyTree
+                                                  ? (isUrdu ? 'شجرہ' : 'Tree')
+                                                  : (isUrdu ? 'دستی' : 'Manual'),
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                                color: _selectedPerson!.isFromFamilyTree ? AppColors.emerald : Colors.grey,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                       Text(
-                                        'Father: ${_selectedPerson!.fatherName.isNotEmpty ? _selectedPerson!.fatherName : "N/A"} • ${_selectedPerson!.phoneNumber}',
+                                        '${isUrdu ? "والد" : "Father"}: ${_selectedPerson!.fatherName.isNotEmpty ? _selectedPerson!.fatherName : "N/A"} • ${_selectedPerson!.phoneNumber}',
                                         style: TextStyle(
                                           fontSize: 11,
                                           color: isDark ? AppColors.textLightSecondary : AppColors.textDarkSecondary,
@@ -417,9 +428,14 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  icon: const Icon(Icons.edit, size: 18),
-                                  onPressed: () => _showSelectPersonDialog(people),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                  icon: const Icon(Icons.swap_horiz, size: 16),
+                                  label: Text(isUrdu ? 'تبدیل' : 'Change', style: const TextStyle(fontSize: 12)),
+                                  onPressed: _pickDonorFromDirectory,
                                 ),
                               ],
                             ),
@@ -433,15 +449,15 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                             ),
                             icon: const Icon(Icons.person_search, color: AppColors.emerald),
-                            label: Text(isUrdu ? 'فہرست سے عطیہ دہندہ منتخب کریں' : 'Select Donor From Registry'),
-                            onPressed: () => _showSelectPersonDialog(people),
+                            label: Text(isUrdu ? 'ڈائریکٹری سے عطیہ دہندہ منتخب کریں' : 'Select Donor From Directory'),
+                            onPressed: _pickDonorFromDirectory,
                           ),
                       ] else ...[
                         // Add new donor fields
                         TextFormField(
                           controller: _newPersonNameCtrl,
                           decoration: InputDecoration(
-                            labelText: isUrdu ? 'نام' : 'Donor Name',
+                            labelText: isUrdu ? 'مکمل نام *' : 'Donor Name *',
                             prefixIcon: const Icon(Icons.person),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                           ),
@@ -451,7 +467,7 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                         TextFormField(
                           controller: _newPersonFatherCtrl,
                           decoration: InputDecoration(
-                            labelText: isUrdu ? 'والد کا نام' : "Father's Name",
+                            labelText: isUrdu ? 'والد کا نام *' : "Father's Name *",
                             prefixIcon: const Icon(Icons.person_outline),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                           ),
@@ -462,7 +478,7 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                           controller: _newPersonPhoneCtrl,
                           keyboardType: TextInputType.phone,
                           decoration: InputDecoration(
-                            labelText: isUrdu ? 'موبائل نمبر (03XXXXXXXXX)' : 'Phone Number (03XXXXXXXXX)',
+                            labelText: isUrdu ? 'موبائل نمبر (03XXXXXXXXX) *' : 'Phone Number (03XXXXXXXXX) *',
                             prefixIcon: const Icon(Icons.phone),
                             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                           ),
@@ -501,7 +517,7 @@ class _HamdardAddEditDonationScreenState extends ConsumerState<HamdardAddEditDon
                         inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: AppColors.emerald),
                         decoration: InputDecoration(
-                          labelText: isUrdu ? 'رقم (روپے)' : 'Amount (PKR)',
+                          labelText: isUrdu ? 'رقم (روپے) *' : 'Amount (PKR) *',
                           prefixText: 'Rs. ',
                           prefixStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                           prefixIcon: const Icon(Icons.currency_rupee),

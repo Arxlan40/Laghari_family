@@ -293,6 +293,109 @@ class HamdardRepository {
     }
   }
 
+  /// Links a Hamdard person to an existing family tree member by UUID.
+  /// Preserves the Hamdard person's ID and all historical transactions!
+  Future<HamdardPerson> linkPersonToFamilyMember({
+    required String personId,
+    required String familyMemberId,
+    String? profileImageUrl,
+    String? bloodGroup,
+    String? profession,
+    String? gender,
+    required String performedBy,
+    required String performedByName,
+  }) async {
+    final person = await getPerson(personId);
+    if (person == null) throw StateError('Person not found: $personId');
+
+    final oldData = person.toJson();
+    final updated = person.copyWith(
+      sourceType: 'family_tree',
+      familyMemberId: familyMemberId,
+      profileImageUrl: profileImageUrl ?? person.profileImageUrl,
+      bloodGroup: bloodGroup ?? person.bloodGroup,
+      profession: profession ?? person.profession,
+      gender: gender ?? person.gender,
+      updatedAt: DateTime.now(),
+    );
+
+    final fs = activeFirestore;
+    if (fs != null) {
+      await fs
+          .collection(AppConfig.hamdardPeopleCollection)
+          .doc(personId)
+          .set(updated.toJson(), SetOptions(merge: true));
+    }
+
+    final index = _inMemoryPeople.indexWhere((p) => p.id == personId);
+    if (index >= 0) {
+      _inMemoryPeople[index] = updated;
+    }
+    _peopleStream.add(List.from(_inMemoryPeople));
+
+    await recordAuditLog(HamdardAuditLog(
+      id: const Uuid().v4(),
+      action: 'linked_family_member',
+      recordType: 'person',
+      recordId: personId,
+      performedBy: performedBy,
+      performedByName: performedByName,
+      timestamp: DateTime.now(),
+      oldData: oldData,
+      newData: updated.toJson(),
+      details: 'Linked ${person.name} to Family Member ID: $familyMemberId',
+    ));
+
+    return updated;
+  }
+
+  /// Unlinks a Hamdard person from the family tree, reverting to manual source.
+  /// Preserves the Hamdard person's ID and all historical transactions!
+  Future<HamdardPerson> unlinkPersonFromFamilyMember({
+    required String personId,
+    required String performedBy,
+    required String performedByName,
+  }) async {
+    final person = await getPerson(personId);
+    if (person == null) throw StateError('Person not found: $personId');
+
+    final oldData = person.toJson();
+    final updated = person.copyWith(
+      sourceType: 'manual',
+      clearFamilyMemberId: true,
+      updatedAt: DateTime.now(),
+    );
+
+    final fs = activeFirestore;
+    if (fs != null) {
+      await fs
+          .collection(AppConfig.hamdardPeopleCollection)
+          .doc(personId)
+          .set(updated.toJson(), SetOptions(merge: true));
+    }
+
+    final index = _inMemoryPeople.indexWhere((p) => p.id == personId);
+    if (index >= 0) {
+      _inMemoryPeople[index] = updated;
+    }
+    _peopleStream.add(List.from(_inMemoryPeople));
+
+    await recordAuditLog(HamdardAuditLog(
+      id: const Uuid().v4(),
+      action: 'unlinked_family_member',
+      recordType: 'person',
+      recordId: personId,
+      performedBy: performedBy,
+      performedByName: performedByName,
+      timestamp: DateTime.now(),
+      oldData: oldData,
+      newData: updated.toJson(),
+      details: 'Unlinked ${person.name} from Family Tree',
+    ));
+
+    return updated;
+  }
+
   // -------------------------------------------------------------
   // DONATION RECORDS
   // -------------------------------------------------------------

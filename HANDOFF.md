@@ -819,45 +819,105 @@ Firestore security rules in `firestore.rules` strictly enforce:
 
 ---
 
-### 11.8 Source Files Added / Modified
+---
 
-| File | Purpose |
-| :--- | :--- |
-| `lib/features/hamdard/models/hamdard_payment_method.dart` | Payment method enum, colors, icons, and localized labels. |
-| `lib/features/hamdard/models/hamdard_spending_category.dart` | Predefined spending categories, colors, icons, and localized labels. |
-| `lib/features/hamdard/models/hamdard_person.dart` | Hamdard donor model with phone normalization and validation. |
-| `lib/features/hamdard/models/hamdard_donation.dart` | Donation model with donor snapshots and audit fields. |
-| `lib/features/hamdard/models/hamdard_spending.dart` | Spending model with recipient information and category enums. |
-| `lib/features/hamdard/models/hamdard_audit_log.dart` | Immutable audit log model. |
-| `lib/features/hamdard/models/hamdard_financial_summary.dart` | KPI and financial calculation engine. |
-| `lib/features/hamdard/models/hamdard_filter.dart` | Date range filtering models and calculators. |
-| `lib/features/hamdard/repositories/hamdard_repository.dart` | Firestore and in-memory fallback repository, opening balance management, audit logging, JSON import/export. |
-| `lib/features/hamdard/providers/hamdard_providers.dart` | Riverpod streams, date filtering providers, and computed statistics. |
-| `lib/features/hamdard/services/hamdard_csv_service.dart` | RFC 4180 CSV generation service. |
-| `lib/features/hamdard/services/hamdard_pdf_service.dart` | Multi-page formal PDF generation service. |
-| `lib/features/hamdard/presentation/widgets/hamdard_spending_pie_chart.dart` | Custom-painted interactive donut chart widget. |
-| `lib/features/hamdard/presentation/widgets/hamdard_notification_dialog.dart` | Broadcast notification dialog for Hamdard announcements. |
-| `lib/features/hamdard/presentation/screens/hamdard_dashboard_screen.dart` | Central financial dashboard. |
-| `lib/features/hamdard/presentation/screens/hamdard_donors_screen.dart` | Searchable donors registry. |
-| `lib/features/hamdard/presentation/screens/hamdard_donor_profile_screen.dart` | Donor monthly breakdown and history. |
-| `lib/features/hamdard/presentation/screens/hamdard_donations_screen.dart` | Searchable donations registry with filters. |
-| `lib/features/hamdard/presentation/screens/hamdard_add_edit_donation_screen.dart` | Add/edit donation entry screen with donor selector. |
-| `lib/features/hamdard/presentation/screens/hamdard_spending_screen.dart` | Searchable spending registry with category filters. |
-| `lib/features/hamdard/presentation/screens/hamdard_add_edit_spending_screen.dart` | Add/edit spending entry screen. |
-| `lib/features/hamdard/presentation/screens/hamdard_reports_screen.dart` | Comprehensive reporting screen with charts and exports. |
-| `lib/features/hamdard/presentation/screens/hamdard_receipt_screen.dart` | Official donation receipt view. |
-| `lib/features/hamdard/presentation/screens/hamdard_admin_management_screen.dart` | Super Admin panel for managing Hamdard Admins. |
-| `lib/features/hamdard/presentation/screens/hamdard_audit_log_screen.dart` | Super Admin financial audit inspector. |
-| `lib/features/hamdard/presentation/screens/hamdard_json_tools_screen.dart` | JSON import and backup screen. |
-| `lib/core/router/app_router.dart` | Added Hamdard routes with role-based navigation guards. |
-| `lib/core/presentation/widgets/app_drawer.dart` | Added Hamdard navigation item in the main drawer. |
-| `lib/features/admin/presentation/screens/admin_dashboard_screen.dart` | Added Hamdard management shortcuts for admins. |
-| `lib/features/auth/models/user_model.dart` | Added `isHamdardAdmin`, assignment audit fields, and permission getters. |
-| `lib/features/auth/repositories/auth_repository.dart` | Added `setHamdardAdminRole` and `getHamdardAdmins`. |
-| `firestore.rules` | Added security rules for all Hamdard collections and user role protection. |
-| `test/hamdard_test.dart` | 18 comprehensive unit tests covering all Hamdard business logic. |
-| `test/hamdard_widget_test.dart` | Widget tests covering receipt, pie chart, and dashboard rendering. |
-| `HANDOFF.md` | Complete architecture and implementation documentation. |
+### 11.9 Unified Hamdard Person Directory & Family Tree Integration
+
+#### Architecture
+The Hamdard feature maintains financial decoupling from the genealogical family tree while supporting an optional reference:
+
+```text
+                    ┌─────────────────────────────────┐
+                    │      Hamdard People             │
+                    │  (hamdard_people collection)    │
+                    │                                 │
+                    │  • Stable Person ID (UUID)      │
+                    │  • sourceType: family_tree|manual│
+                    │  • familyMemberId: UUID? (opt)  │
+                    │  • profileImageUrl              │
+                    └────────────────┬────────────────┘
+                                     │
+              ┌──────────────────────┴──────────────────────┐
+              │                                             │
+       ┌──────▼────────┐                             ┌──────▼────────┐
+       │   Donations   │                             │   Spending    │
+       │   Receiving   │                             │  Recipients   │
+       │               │                             │               │
+       │ personId: HP  │                             │ personId: HP  │
+       │ (Snapshots)   │                             │ (Snapshots)   │
+       └───────────────┘                             └───────────────┘
+                                     │
+                                     │ optional reference
+                                     ▼
+                    ┌─────────────────────────────────┐
+                    │         Family Tree             │
+                    │   familyMemberId (UUID)         │
+                    └─────────────────────────────────┘
+```
+
+#### Key Rules:
+1. **Financial Identity Anchor:** All donations and spending transactions strictly use `hamdardPersonId` (`personId`) as their primary relationship.
+2. **Decoupled from Family Tree:** The family tree never touches transactions. Even if a family tree member is renamed, moved, or deleted, Hamdard records remain valid with their immutable snapshots.
+3. **Identity by UUID, Never Name:** When selecting, linking, or navigating family members, identity is **always determined by `familyMemberId` (UUID)** to prevent collisions between different individuals who share the same name (e.g., multiple members named "Ilyas").
+4. **Link / Unlink / Replace Lifecycle:**
+   * A person manually added can later be linked to an existing family tree member using `repo.linkPersonToFamilyMember`.
+   * An incorrect link can be replaced or unlinked using `repo.unlinkPersonFromFamilyMember`.
+   * **The Hamdard person ID remains identical throughout all linking operations**, guaranteeing 100% historical transaction continuity.
+   * Confirmation dialogs inform the administrator that financial history is preserved.
+5. **Reusability across Donors and Recipients:**
+   * The directory is unified for **both** people who donate funds and people who receive welfare disbursements.
+   * Dual profile history displays donations given (12-month grid with "No donation" indicators) and welfare assistance received.
+
+---
+
+### 11.10 Bug Fixes & Technical Solutions
+
+#### 1. Web PDF & CSV Export Fix
+* **Issue:** Calling `getTemporaryDirectory()` and using `dart:io File` threw a `MissingPluginException` / unsupported API crash on Flutter Web.
+* **Solution:** Created `lib/core/utils/file_download_helper.dart` with platform-specific implementations:
+  * `file_download_helper_web.dart`: Generates a Blob URL in memory and triggers browser anchor download without touching the filesystem.
+  * `file_download_helper_io.dart`: Uses `path_provider` and `share_plus` on Android/iOS/Desktop.
+  * Both `HamdardPdfService` and `HamdardCsvService` use this abstraction, ensuring seamless functionality across Web and Mobile.
+
+#### 2. Financial Audit Trail White Screen Fix
+* **Issue:** Clicking an audit entry sometimes threw `JsonUnsupportedObjectError` during JSON encoding when `oldData`/`newData` contained Firestore `Timestamp` objects or massive base64 image strings.
+* **Solution:** Implemented `_sanitizeForDisplay` in `hamdard_audit_log_screen.dart`:
+  * Recursively converts `Timestamp` and `DateTime` objects to ISO 8601 strings.
+  * Omit base64 image strings longer than 250 characters with `[Base64 Image Data Omitted]`.
+  * Safe fallback formatting for missing or legacy schema fields (`Unknown`, `Not available`).
+
+#### 3. Hamdard Admin Profile Pictures
+* **Issue:** Admin management screens only rendered default generic icons.
+* **Solution:** Created `HamdardUserAvatar` supporting network URLs, data URLs, and initial fallbacks. Integrated into the user selection list, assigned admins list, and revoke confirmation dialog.
+
+#### 4. Form Validation Snackbars
+* **Issue:** Missing form inputs failed silently without obvious user feedback when errors were off-screen.
+* **Solution:** Added explicit validation checks displaying clear Snackbars for:
+  * Required donor/recipient name
+  * Required father name
+  * Invalid/missing phone number (11-digit Pakistani format)
+  * Amount <= 0
+  * Missing payment method or spending category
+  * Missing date
+  * Prevented partial Firestore records and suppressed duplicate validation alerts.
+
+---
+
+### 11.11 Verification & Testing Summary
+
+* **Static Analysis:** `flutter analyze` passes with **0 issues** across the entire project.
+* **Test Suite:** `flutter test test/hamdard_test.dart test/hamdard_widget_test.dart` passes **27/27 tests**:
+  * Unit tests: Role permissions, current balance formula, date range filtering, donation CRUD & audit logs, spending CRUD & categories, JSON import deduplication, RFC 4180 CSV escaping, PDF byte generation, Person Directory with `sourceType` and `familyMemberId`, Family tree linking/unlinking preserving Person ID, spending linked to `personId`, and audit log sanitization.
+  * Widget tests: `HamdardReceiptScreen`, `HamdardSpendingPieChart`, and `HamdardDashboardScreen`.
+
+---
+
+### 11.12 Git Branch & Deployment Safety Compliance
+
+* **Active Branch:** `feature/hamdard-laghari`
+* **Merging:** Branch was NOT merged into `main` or any other branch.
+* **Deployment:** No deployment commands (`firebase deploy`, `flutter build appbundle`, etc.) were executed. Production data remains unaffected.
+
 
 
 

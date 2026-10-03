@@ -9,6 +9,7 @@ import '../../../auth/providers/auth_provider.dart';
 import '../../models/hamdard_audit_log.dart';
 import '../../providers/hamdard_providers.dart';
 import '../../repositories/hamdard_repository.dart';
+import '../widgets/hamdard_user_avatar.dart';
 import 'hamdard_audit_log_screen.dart';
 
 class HamdardAdminManagementScreen extends ConsumerStatefulWidget {
@@ -75,9 +76,10 @@ class _HamdardAdminManagementScreenState extends ConsumerState<HamdardAdminManag
                             itemBuilder: (ctx, i) {
                               final u = filtered[i];
                               return ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: AppColors.emerald.withValues(alpha: 0.15),
-                                  child: Text(u.name.isNotEmpty ? u.name[0].toUpperCase() : 'U'),
+                                leading: HamdardUserAvatar(
+                                  imageUrl: u.profileImageUrl,
+                                  name: u.name,
+                                  size: 40,
                                 ),
                                 title: Text(u.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                                 subtitle: Text(
@@ -150,10 +152,36 @@ class _HamdardAdminManagementScreenState extends ConsumerState<HamdardAdminManag
         backgroundColor: isDark ? AppColors.darkCard : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Text(loc.isUrdu ? 'ہمدرد ایڈمن کا عہدہ ختم کریں؟' : 'Remove Hamdard Admin?'),
-        content: Text(
-          loc.isUrdu
-              ? 'کیا آپ واقعی ${adminUser.name} سے ہمدرد ایڈمن کی ذمہ داری واپس لینا چاہتے ہیں؟ اگر ان کے پاس نارمل ایڈمن رول ہے تو وہ برقرار رہے گا۔'
-              : 'Are you sure you want to remove Hamdard Admin privileges from ${adminUser.name}? Their base role (${adminUser.role.labelEn}) will remain untouched.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                HamdardUserAvatar(
+                  imageUrl: adminUser.profileImageUrl,
+                  name: adminUser.name,
+                  size: 44,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(adminUser.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text(adminUser.email, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              loc.isUrdu
+                  ? 'کیا آپ واقعی ${adminUser.name} سے ہمدرد ایڈمن کی ذمہ داری واپس لینا چاہتے ہیں؟ اگر ان کے پاس نارمل ایڈمن رول ہے تو وہ برقرار رہے گا۔'
+                  : 'Are you sure you want to remove Hamdard Admin privileges from ${adminUser.name}? Their base role (${adminUser.role.labelEn}) will remain untouched.',
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -411,13 +439,39 @@ class _HamdardAdminManagementScreenState extends ConsumerState<HamdardAdminManag
                         children: [
                           Row(
                             children: [
-                              CircleAvatar(
-                                backgroundColor: isSuper ? AppColors.gold : AppColors.emerald,
-                                child: Icon(
-                                  isSuper ? Icons.shield : Icons.security,
-                                  color: Colors.black87,
-                                  size: 20,
-                                ),
+                              Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  HamdardUserAvatar(
+                                    imageUrl: admin.profileImageUrl,
+                                    name: admin.name,
+                                    size: 46,
+                                    backgroundColor: isSuper
+                                        ? AppColors.gold.withValues(alpha: 0.2)
+                                        : AppColors.emerald.withValues(alpha: 0.2),
+                                    textColor: isSuper ? AppColors.gold : AppColors.emerald,
+                                  ),
+                                  Positioned(
+                                    right: -2,
+                                    bottom: -2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(3),
+                                      decoration: BoxDecoration(
+                                        color: isSuper ? AppColors.gold : AppColors.emerald,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: isDark ? AppColors.darkCard : Colors.white,
+                                          width: 1.5,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        isSuper ? Icons.shield : Icons.security,
+                                        color: Colors.black87,
+                                        size: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                               const SizedBox(width: 14),
                               Expanded(
