@@ -366,6 +366,41 @@ class AuthRepository {
     }
   }
 
+  /// Super Admin: Assigns or removes the additive Hamdard Admin role
+  Future<void> setHamdardAdminRole({
+    required String uid,
+    required bool isHamdardAdmin,
+    required String assignedByUid,
+    required String assignedByName,
+  }) async {
+    final firestore = activeFirestore;
+    final now = DateTime.now();
+    if (firestore != null) {
+      await firestore.collection(AppConfig.usersCollection).doc(uid).update({
+        'is_hamdard_admin': isHamdardAdmin,
+        'hamdard_admin_assigned_at': isHamdardAdmin ? now.toIso8601String() : null,
+        'hamdard_admin_assigned_by': isHamdardAdmin ? assignedByUid : null,
+        'hamdard_admin_assigned_by_name': isHamdardAdmin ? assignedByName : null,
+        'updated_at': now.toIso8601String(),
+      });
+    }
+    if (_currentUser?.uid == uid) {
+      _currentUser = _currentUser?.copyWith(
+        isHamdardAdmin: isHamdardAdmin,
+        hamdardAdminAssignedAt: isHamdardAdmin ? now : null,
+        hamdardAdminAssignedBy: isHamdardAdmin ? assignedByUid : null,
+        hamdardAdminAssignedByName: isHamdardAdmin ? assignedByName : null,
+      );
+      _userStreamController.add(_currentUser);
+    }
+  }
+
+  /// Lists all Hamdard Admins (Super Admins + users assigned Hamdard Admin)
+  Future<List<UserModel>> getHamdardAdmins() async {
+    final all = await getAllUsers();
+    return all.where((u) => u.canManageHamdard).toList();
+  }
+
   /// Super Admin: Lists all users
   Future<List<UserModel>> getAllUsers() async {
     final firestore = activeFirestore;

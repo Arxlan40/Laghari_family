@@ -257,6 +257,10 @@ class UserModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final UserDeviceInfo? deviceInfo;
+  final bool isHamdardAdmin;
+  final DateTime? hamdardAdminAssignedAt;
+  final String? hamdardAdminAssignedBy;
+  final String? hamdardAdminAssignedByName;
 
   const UserModel({
     required this.uid,
@@ -274,11 +278,20 @@ class UserModel {
     this.createdAt,
     this.updatedAt,
     this.deviceInfo,
+    this.isHamdardAdmin = false,
+    this.hamdardAdminAssignedAt,
+    this.hamdardAdminAssignedBy,
+    this.hamdardAdminAssignedByName,
   });
 
   bool get isSuperAdmin => role.isSuperAdmin;
   bool get isAdmin => role.isAdmin;
   bool get isBlocked => status.isBlocked;
+
+  /// Hamdard Laghari Permission Checkers
+  bool get canManageHamdard => (isSuperAdmin || isHamdardAdmin) && !isBlocked;
+  bool get canAssignHamdardAdmins => isSuperAdmin && !isBlocked;
+  bool get canViewHamdardAudit => isSuperAdmin && !isBlocked;
 
   /// Gracefully normalizes gender values to strictly 'Male' or 'Female'
   static String normalizeGender(String? val) {
@@ -331,6 +344,10 @@ class UserModel {
       deviceInfo: json['deviceInfo'] != null
           ? UserDeviceInfo.fromJson(json['deviceInfo'])
           : (json['device_info'] != null ? UserDeviceInfo.fromJson(json['device_info']) : null),
+      isHamdardAdmin: json['is_hamdard_admin'] == true || json['isHamdardAdmin'] == true,
+      hamdardAdminAssignedAt: parseDate(json['hamdard_admin_assigned_at'] ?? json['hamdardAdminAssignedAt']),
+      hamdardAdminAssignedBy: (json['hamdard_admin_assigned_by'] ?? json['hamdardAdminAssignedBy'])?.toString(),
+      hamdardAdminAssignedByName: (json['hamdard_admin_assigned_by_name'] ?? json['hamdardAdminAssignedByName'])?.toString(),
     );
   }
 
@@ -352,6 +369,10 @@ class UserModel {
       'created_at': createdAt?.toIso8601String(),
       'updated_at': updatedAt?.toIso8601String(),
       if (deviceInfo != null) 'deviceInfo': deviceInfo?.toJson(),
+      'is_hamdard_admin': isHamdardAdmin,
+      if (hamdardAdminAssignedAt != null) 'hamdard_admin_assigned_at': hamdardAdminAssignedAt?.toIso8601String(),
+      if (hamdardAdminAssignedBy != null) 'hamdard_admin_assigned_by': hamdardAdminAssignedBy,
+      if (hamdardAdminAssignedByName != null) 'hamdard_admin_assigned_by_name': hamdardAdminAssignedByName,
     };
   }
 
@@ -371,6 +392,10 @@ class UserModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     UserDeviceInfo? deviceInfo,
+    bool? isHamdardAdmin,
+    DateTime? hamdardAdminAssignedAt,
+    String? hamdardAdminAssignedBy,
+    String? hamdardAdminAssignedByName,
   }) {
     return UserModel(
       uid: uid ?? this.uid,
@@ -388,6 +413,10 @@ class UserModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       deviceInfo: deviceInfo ?? this.deviceInfo,
+      isHamdardAdmin: isHamdardAdmin ?? this.isHamdardAdmin,
+      hamdardAdminAssignedAt: hamdardAdminAssignedAt ?? this.hamdardAdminAssignedAt,
+      hamdardAdminAssignedBy: hamdardAdminAssignedBy ?? this.hamdardAdminAssignedBy,
+      hamdardAdminAssignedByName: hamdardAdminAssignedByName ?? this.hamdardAdminAssignedByName,
     );
   }
 }
