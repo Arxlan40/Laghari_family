@@ -586,4 +586,278 @@ The distinction between **Loading**, **Empty**, **Error**, and **Success** state
    * Tested null and empty blood groups map to `Unknown`.
    * Tested combining search with blood group and category filters.
 
+---
+
+## 11. Hamdard Laghari — Donation & Spending Management Architecture
+
+### 11.1 Overview & Decoupled Architecture
+
+**Hamdard Laghari** is an independent donation-management and financial-transparency module for the monthly community donation fund operated by the Laghari family.
+
+> [!CRITICAL]
+> **Strict Decoupling from Family Tree:**
+> * Hamdard people records (`hamdard_people`) are **completely independent** from family-tree member records (`members`).
+> * Even if a donor or spending recipient happens to be a family tree member, their records are **NOT** automatically linked or merged.
+> * The existing `FamilyMember` data model and family tree graph engine were **NOT modified** in any way.
+> * Hamdard people use dedicated `hamdardPersonId`s (UUIDs), and donations reference them via `personId` plus immutable point-in-time snapshots (`personNameSnapshot`, `fatherNameSnapshot`, `phoneNumberSnapshot`).
+
+---
+
+### 11.2 Role System & Permission Matrix
+
+The application supports an additive, non-destructive role system:
+
+| Role | Normal Family Tree & Admin Access | Hamdard Laghari Access |
+| :--- | :--- | :--- |
+| **User** | Read family tree, submit edit requests | Read-only public financial transparency (Dashboard, Collections, Spending, Reports, Donors). Cannot add, edit, or delete financial records. |
+| **Admin** | Approve/reject requests, manage family tree members | Same as User (Read-only for Hamdard) unless explicitly granted Hamdard Admin role. Normal Admin does **NOT** grant Hamdard permissions. |
+| **Hamdard Admin** | Normal user permissions on family tree | Full management of Hamdard: add/edit/delete donors, donations, spending; send notifications; export PDF/CSV. Cannot manage family tree admin features or assign Hamdard roles. |
+| **Admin + Hamdard Admin** | Full family tree admin capabilities | Full Hamdard admin capabilities. Both roles operate additively and independently. |
+| **Super Admin** | Full family tree root control | Root control: assign/remove Hamdard Admins, set opening balance, view audit logs, import/export JSON, manage all records. |
+
+#### Additive Storage Model:
+In Firestore `users/{uid}`:
+* `role`: `'user' | 'admin' | 'superAdmin'`
+* `is_hamdard_admin`: `true | false`
+* `hamdard_admin_assigned_at`: `Timestamp`
+* `hamdard_admin_assigned_by`: `String` (Super Admin UID)
+* `hamdard_admin_assigned_by_name`: `String` (Super Admin Name)
+
+`canManageHamdard` evaluates to `true` if `isSuperAdmin == true` OR `isHamdardAdmin == true`.
+
+---
+
+### 11.3 Firestore Collections & Schemas
+
+| Collection Name | Document ID | Purpose |
+| :--- | :--- | :--- |
+| `hamdard_people` | UUID | Independent Hamdard donor registry. |
+| `hamdard_donations` | UUID | Financial transaction records for received donations. |
+| `hamdard_spending` | UUID | Financial transaction records for community welfare disbursements. |
+| `hamdard_settings` | `financial_settings` | Stores the system opening balance and configuration. |
+| `hamdard_audit_logs` | UUID | Immutable audit trail for every financial create, edit, delete, and role assignment. |
+
+#### 1. `hamdard_people` Schema
+```json
+{
+  "id": "uuid-string",
+  "name": "Muhammad Khan",
+  "father_name": "Ahmed Khan",
+  "phone_number": "03001234567",
+  "created_at": "Timestamp",
+  "updated_at": "Timestamp",
+  "created_by": "uid-string",
+  "updated_by": "uid-string",
+  "notes": "Optional remarks"
+}
+```
+
+#### 2. `hamdard_donations` Schema
+```json
+{
+  "id": "uuid-string",
+  "person_id": "uuid-string",
+  "person_name_snapshot": "Muhammad Khan",
+  "father_name_snapshot": "Ahmed Khan",
+  "phone_number_snapshot": "03001234567",
+  "amount": 5000,
+  "payment_method": "JazzCash",
+  "date": "Timestamp",
+  "description": "Monthly donation for October 2026",
+  "note": "Internal audit note",
+  "created_at": "Timestamp",
+  "updated_at": "Timestamp",
+  "created_by": "uid-string",
+  "updated_by": "uid-string"
+}
+```
+
+#### 3. `hamdard_spending` Schema
+```json
+{
+  "id": "uuid-string",
+  "recipient_name": "Ali Hassan",
+  "recipient_father_name": "Nawaz Ali",
+  "recipient_phone_number": "03111234567",
+  "amount": 25000,
+  "date": "Timestamp",
+  "payment_method": "Bank Transfer",
+  "category": "Medical",
+  "description": "Hospital surgery assistance",
+  "note": "Verified by Welfare Committee",
+  "created_at": "Timestamp",
+  "updated_at": "Timestamp",
+  "created_by": "uid-string",
+  "updated_by": "uid-string"
+}
+```
+
+#### 4. `hamdard_settings` (`financial_settings`) Schema
+```json
+{
+  "opening_balance": 50000,
+  "updated_by": "super-admin-uid",
+  "updated_by_name": "Super Admin",
+  "updated_at": "Timestamp",
+  "reason": "Audited opening balance transition"
+}
+```
+
+#### 5. `hamdard_audit_logs` Schema
+```json
+{
+  "id": "uuid-string",
+  "action": "added_donation | edited_donation | deleted_donation | added_spending | edited_spending | deleted_spending | added_person | edited_person | deleted_person | assigned_hamdard_admin | removed_hamdard_admin | updated_opening_balance | imported_people_json",
+  "record_type": "donation | spending | person | settings | user_role | import",
+  "record_id": "target-id",
+  "performed_by": "uid-string",
+  "performed_by_name": "Hamdard Admin",
+  "timestamp": "Timestamp",
+  "old_data": { "...": "..." },
+  "new_data": { "...": "..." },
+  "details": "Human-readable summary of financial change"
+}
+```
+
+---
+
+### 11.4 Financial Accounting Engine
+
+#### Mathematical Model
+All amounts are stored as exact integers in Pakistani Rupees (PKR):
+$$\text{Current Balance} = \text{Opening Balance} + \sum \text{Donations} - \sum \text{Spending}$$
+
+* **No Editable Balance Field:** `currentBalance` is **never** stored directly in a client-editable document. It is dynamically computed from validated transaction records and audited opening balance.
+* **Instant Recognition:** All donations count as received immediately upon entry (`date` timestamp).
+* **Combined Single Balance:** Primary dashboard balance is combined across all payment methods. Payment methods are analyzed separately for reporting and auditing.
+
+#### Fixed Centralized Enums
+* **Payment Methods (`HamdardPaymentMethod`):**
+  * `Cash`
+  * `Easypaisa`
+  * `JazzCash`
+  * `Bank Transfer`
+* **Spending Categories (`HamdardSpendingCategory`):**
+  * `Medical`
+  * `Education`
+  * `Food`
+  * `Emergency`
+  * `Marriage`
+  * `Funeral`
+  * `Family Assistance`
+  * `Other`
+
+---
+
+### 11.5 Key Features & Presentation Screens
+
+1. **Dashboard (`hamdard_dashboard_screen.dart`):**
+   * High-contrast gradient banner with **Current Combined Balance**.
+   * KPI Cards: This Month Collection, This Month Spending, This Year Collection, This Year Spending.
+   * Donor Participation: Total Donors, Donated This Month, No Donation This Month.
+   * Dynamic Donut Chart for spending category breakdown with interactive tap-to-inspect callout.
+   * Payment Method summary cards.
+   * Role-aware quick action shortcuts.
+2. **Donors Registry (`hamdard_donors_screen.dart`):**
+   * Search by name, father name, or phone number.
+   * Filter chips: All, Donated This Month, Not Donated This Month.
+   * Displays Name, Father Name, Phone, This Month Total, This Year Total, and All-Time Total.
+3. **Donor Profile (`hamdard_donor_profile_screen.dart`):**
+   * 12-Month grid showing monthly totals or *"No donation"* badges.
+   * Yearly statistics: Total amount, donation count, average donation.
+   * Full list of donor's historical transactions with edit/delete controls.
+4. **Donations Screen (`hamdard_donations_screen.dart`):**
+   * Searchable transaction list with payment method filter chips.
+   * Add Donation workflow with donor search selector or inline new donor registration.
+   * Edit and delete with confirmation dialog and automatic audit trail.
+5. **Spending Screen (`hamdard_spending_screen.dart`):**
+   * List of spending records with category and payment method filters.
+   * Add/Edit spending dialogs with recipient verification.
+6. **Reports Screen (`hamdard_reports_screen.dart`):**
+   * Filtering periods: This Month, Last Month, This Year, Last Year, Custom Date Range, All Time.
+   * Category spending breakdown with interactive Donut Chart.
+   * Payment method collection and spending tables.
+   * Quick export buttons for PDF and CSV.
+7. **Official Receipt Screen (`hamdard_receipt_screen.dart`):**
+   * Official receipt with donor details, amount, payment method, date, and verification seal.
+   * Device share sheet integration.
+8. **Admin Management Screen (`hamdard_admin_management_screen.dart`):**
+   * Super Admin panel to assign or revoke Hamdard Admin roles.
+   * Opening balance updater with audit reason prompt.
+9. **Financial Audit Trail (`hamdard_audit_log_screen.dart`):**
+   * Super Admin log inspector showing before/after JSON diffs for every financial change.
+10. **JSON Tools & Backup (`hamdard_json_tools_screen.dart`):**
+    * JSON bulk import for donors with phone number deduplication and structure validation.
+    * Full system backup JSON exporter.
+
+---
+
+### 11.6 Export & Reporting Services
+
+* **PDF Export (`HamdardPdfService`):**
+  * Multi-page, clean document generated with `pdf` and `printing` packages.
+  * Includes formal header, financial summary cards, payment method breakdown, spending distribution table, donor summaries, and itemized transaction tables.
+* **CSV Export (`HamdardCsvService`):**
+  * RFC 4180 compliant CSV generator with standard quoting and escaping.
+  * Exports transaction-level data compatible with Microsoft Excel and Google Sheets.
+* **JSON Import Engine:**
+  * Validates JSON schema: `[{ "name": "...", "fatherName": "...", "phoneNumber": "..." }]`.
+  * Normalizes Pakistani phone numbers (`+92`, `0092`, spaces, hyphens).
+  * Existing phone numbers are preserved without duplicating records.
+  * Produces an import summary: Total records, new people added, already existed, invalid records.
+
+---
+
+### 11.7 Security Rules & Server-Side Enforcement
+
+Firestore security rules in `firestore.rules` strictly enforce:
+* **Public Read Transparency:** All authenticated users (`request.auth != null`) can read `hamdard_people`, `hamdard_donations`, `hamdard_spending`, and `hamdard_settings`.
+* **Restricted Writes:** Only users with `isSuperAdmin()` or `isHamdardAdmin()` can create, update, or delete records in `hamdard_people`, `hamdard_donations`, and `hamdard_spending`.
+* **Opening Balance Protection:** Only `isSuperAdmin()` can write to `hamdard_settings/financial_settings`.
+* **Audit Trail Immutability:** Only admins can create audit entries; **no user can update or delete** an audit record.
+* **Role Tampering Protection:** Normal users cannot grant themselves `is_hamdard_admin`. Only `isSuperAdmin()` can modify role fields in `users/{userId}`.
+
+---
+
+### 11.8 Source Files Added / Modified
+
+| File | Purpose |
+| :--- | :--- |
+| `lib/features/hamdard/models/hamdard_payment_method.dart` | Payment method enum, colors, icons, and localized labels. |
+| `lib/features/hamdard/models/hamdard_spending_category.dart` | Predefined spending categories, colors, icons, and localized labels. |
+| `lib/features/hamdard/models/hamdard_person.dart` | Hamdard donor model with phone normalization and validation. |
+| `lib/features/hamdard/models/hamdard_donation.dart` | Donation model with donor snapshots and audit fields. |
+| `lib/features/hamdard/models/hamdard_spending.dart` | Spending model with recipient information and category enums. |
+| `lib/features/hamdard/models/hamdard_audit_log.dart` | Immutable audit log model. |
+| `lib/features/hamdard/models/hamdard_financial_summary.dart` | KPI and financial calculation engine. |
+| `lib/features/hamdard/models/hamdard_filter.dart` | Date range filtering models and calculators. |
+| `lib/features/hamdard/repositories/hamdard_repository.dart` | Firestore and in-memory fallback repository, opening balance management, audit logging, JSON import/export. |
+| `lib/features/hamdard/providers/hamdard_providers.dart` | Riverpod streams, date filtering providers, and computed statistics. |
+| `lib/features/hamdard/services/hamdard_csv_service.dart` | RFC 4180 CSV generation service. |
+| `lib/features/hamdard/services/hamdard_pdf_service.dart` | Multi-page formal PDF generation service. |
+| `lib/features/hamdard/presentation/widgets/hamdard_spending_pie_chart.dart` | Custom-painted interactive donut chart widget. |
+| `lib/features/hamdard/presentation/widgets/hamdard_notification_dialog.dart` | Broadcast notification dialog for Hamdard announcements. |
+| `lib/features/hamdard/presentation/screens/hamdard_dashboard_screen.dart` | Central financial dashboard. |
+| `lib/features/hamdard/presentation/screens/hamdard_donors_screen.dart` | Searchable donors registry. |
+| `lib/features/hamdard/presentation/screens/hamdard_donor_profile_screen.dart` | Donor monthly breakdown and history. |
+| `lib/features/hamdard/presentation/screens/hamdard_donations_screen.dart` | Searchable donations registry with filters. |
+| `lib/features/hamdard/presentation/screens/hamdard_add_edit_donation_screen.dart` | Add/edit donation entry screen with donor selector. |
+| `lib/features/hamdard/presentation/screens/hamdard_spending_screen.dart` | Searchable spending registry with category filters. |
+| `lib/features/hamdard/presentation/screens/hamdard_add_edit_spending_screen.dart` | Add/edit spending entry screen. |
+| `lib/features/hamdard/presentation/screens/hamdard_reports_screen.dart` | Comprehensive reporting screen with charts and exports. |
+| `lib/features/hamdard/presentation/screens/hamdard_receipt_screen.dart` | Official donation receipt view. |
+| `lib/features/hamdard/presentation/screens/hamdard_admin_management_screen.dart` | Super Admin panel for managing Hamdard Admins. |
+| `lib/features/hamdard/presentation/screens/hamdard_audit_log_screen.dart` | Super Admin financial audit inspector. |
+| `lib/features/hamdard/presentation/screens/hamdard_json_tools_screen.dart` | JSON import and backup screen. |
+| `lib/core/router/app_router.dart` | Added Hamdard routes with role-based navigation guards. |
+| `lib/core/presentation/widgets/app_drawer.dart` | Added Hamdard navigation item in the main drawer. |
+| `lib/features/admin/presentation/screens/admin_dashboard_screen.dart` | Added Hamdard management shortcuts for admins. |
+| `lib/features/auth/models/user_model.dart` | Added `isHamdardAdmin`, assignment audit fields, and permission getters. |
+| `lib/features/auth/repositories/auth_repository.dart` | Added `setHamdardAdminRole` and `getHamdardAdmins`. |
+| `firestore.rules` | Added security rules for all Hamdard collections and user role protection. |
+| `test/hamdard_test.dart` | 18 comprehensive unit tests covering all Hamdard business logic. |
+| `test/hamdard_widget_test.dart` | Widget tests covering receipt, pie chart, and dashboard rendering. |
+| `HANDOFF.md` | Complete architecture and implementation documentation. |
+
+
 
