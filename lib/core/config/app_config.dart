@@ -11,6 +11,14 @@ class AppConfig {
   static const String auditLogsCollection = 'audit_logs';
   static const String settingsCollection = 'settings';
 
+  // Hamdard Laghari Collections
+  static const String hamdardPeopleCollection = 'hamdard_people';
+  static const String hamdardDonationsCollection = 'hamdard_donations';
+  static const String hamdardSpendingCollection = 'hamdard_spending';
+  static const String hamdardAuditLogsCollection = 'hamdard_audit_logs';
+  static const String hamdardSettingsCollection = 'hamdard_settings';
+  static const String hamdardFinancialSettingsDoc = 'financial';
+
   // Settings Document
   static const String appSettingsDoc = 'app';
   static const String initialImportKey = 'initial_data_imported';

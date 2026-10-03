@@ -25,6 +25,11 @@ service cloud.firestore {
         (isSuperAdmin() || 
          (userDocExists() && getUserData().role == 'admin'));
     }
+    function isHamdardAdmin() {
+      return isAuthenticated() && 
+        (isSuperAdmin() || 
+         (userDocExists() && getUserData().is_hamdard_admin == true));
+    }
 
     // 1. Family Members Collection
     match /family_members/{memberId} {
@@ -34,11 +39,13 @@ service cloud.firestore {
 
     // 2. Users Collection
     match /users/{userId} {
-      // Normal users can read and update their own document.
-      // Super Admins and Admins can manage roles/status and delete users if needed.
+      // Normal users can read and update their own document, but cannot tamper with role or is_hamdard_admin.
+      // Super Admins can manage roles/status/hamdard admins and delete users if needed.
       allow create: if isAuthenticated() && request.auth.uid == userId;
-      allow read: if isOwner(userId) || isAdmin();
-      allow update: if isOwner(userId) || isAdmin();
+      allow read: if isOwner(userId) || isAdmin() || isHamdardAdmin();
+      allow update: if isSuperAdmin() || 
+        (isAdmin() && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'is_hamdard_admin'])) ||
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'status', 'is_hamdard_admin']));
       allow delete: if isAdmin();
 
       // Explicit protection for nested device/location info if stored in subcollections
@@ -85,6 +92,51 @@ service cloud.firestore {
     match /deleted_members/{memberId} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // -------------------------------------------------------------
+    // 8. Hamdard Laghari — Financial Transparency & Audit Rules
+    // -------------------------------------------------------------
+    // Hamdard People:
+    // Read: All authenticated users (transparent community registry)
+    // Write: Hamdard Admin and Super Admin
+    match /hamdard_people/{personId} {
+      allow read: if isAuthenticated();
+      allow write: if isHamdardAdmin();
+    }
+
+    // Hamdard Donations:
+    // Read: All authenticated users (transparent financial collection)
+    // Write: Hamdard Admin and Super Admin
+    match /hamdard_donations/{donationId} {
+      allow read: if isAuthenticated();
+      allow write: if isHamdardAdmin();
+    }
+
+    // Hamdard Spending:
+    // Read: All authenticated users (transparent community expenditures)
+    // Write: Hamdard Admin and Super Admin
+    match /hamdard_spending/{spendingId} {
+      allow read: if isAuthenticated();
+      allow write: if isHamdardAdmin();
+    }
+
+    // Hamdard Financial Settings (Opening balance, accounting config):
+    // Read: All authenticated users
+    // Write: Super Admin ONLY
+    match /hamdard_settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
+    // Hamdard Financial Audit Trail:
+    // Read: Super Admin ONLY
+    // Create: Hamdard Admin & Super Admin (automatic audit recording)
+    // Update/Delete: Super Admin ONLY (immutable to normal admins)
+    match /hamdard_audit_logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if isHamdardAdmin();
+      allow update, delete: if isSuperAdmin();
     }
 
     // Fallback rule for backward compatibility
